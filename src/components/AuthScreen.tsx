@@ -197,7 +197,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                 <img
                   src={isDarkMode ? levelUpDark : levelUpLight}
                   alt="Level Up Indonesia"
-                  className="h-full w-full scale-[1.7] object-cover"
+                  className="h-full w-full object-contain p-1.5"
                 />
               </div>
               <h2 className={`text-xl font-black tracking-tight leading-tight uppercase font-sans ${
