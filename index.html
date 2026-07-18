@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <script>
+      // Prevent crashes from libraries/extensions trying to overwrite the read-only window.fetch getter
+      (function() {
+        try {
+          const originalFetch = window.fetch;
+          Object.defineProperty(window, 'fetch', {
+            get() { return originalFetch; },
+            set(v) { console.warn("Intercepted and ignored write to window.fetch:", v); },
+            configurable: true,
+            enumerable: true
+          });
+        } catch (e) {
+          console.warn("Could not patch window.fetch setter:", e);
+        }
+      })();
+
+      // Prevent "Uncaught SyntaxError: 'undefined' is not valid JSON" globally
+      (function() {
+        try {
+          const originalParse = JSON.parse;
+          JSON.parse = function(text, reviver) {
+            if (text === undefined || text === null) {
+              return null;
+            }
+            if (typeof text === 'string') {
+              const trimmed = text.trim();
+              if (
+                trimmed === 'undefined' || 
+                trimmed === 'null' || 
+                trimmed === '"undefined"' || 
+                trimmed === '"null"' || 
+                !trimmed
+              ) {
+                return null;
+              }
+            }
+            try {
+              return originalParse(text, reviver);
+            } catch (err) {
+              // If the value passed is literally "undefined" or malformed text like "undefined", return null
+              if (typeof text === 'string') {
+                const lower = text.trim().toLowerCase();
+                if (lower === 'undefined' || lower === 'null') {
+                  return null;
+                }
+              }
+              throw err; // rethrow other legitimate syntax errors
+            }
+          };
+        } catch (e) {
+          console.warn("Could not install global JSON.parse safety wrapper:", e);
+        }
+      })();
+
+      // Clean up corrupted storage values that cause parsing crashes on page load
+      (function() {
+        try {
+          const cleanStorage = (storage) => {
+            if (!storage) return;
+            const keysToRemove = [];
+            for (let i = 0; i < storage.length; i++) {
+              const key = storage.key(i);
+              if (key) {
+                const val = storage.getItem(key);
+                if (
+                  val === undefined || 
+                  val === null || 
+                  val === 'undefined' || 
+                  val === 'null' || 
+                  val === '"undefined"' || 
+                  val === '"null"'
+                ) {
+                  keysToRemove.push(key);
+                }
+              }
+            }
+            keysToRemove.forEach(k => {
+              try {
+                storage.removeItem(k);
+              } catch (e) {}
+            });
+          };
+          cleanStorage(window.localStorage);
+          cleanStorage(window.sessionStorage);
+        } catch (e) {
+          console.warn("Storage cleanup failed:", e);
+        }
+      })();
+    </script>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PUBG Mobile Database</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+
