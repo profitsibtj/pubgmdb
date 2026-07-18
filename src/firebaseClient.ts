@@ -1,4 +1,57 @@
 import { Match, Player } from "./types";
+import { getBrowserSupabase } from "./supabaseBrowserClient";
+
+const mapMatchFromDb = (row: any) => {
+  if (!row) return null;
+  return {
+    id: String(row.id),
+    date: row.date || "",
+    matchCode: row.match_code || "",
+    league: row.league || "",
+    totalGame: row.total_game || "1",
+    gameNo: row.game_no || "1",
+    map: row.map || "Erangel",
+    liveLink: row.live_link || "",
+    teams: row.teams || [],
+    createdAt: row.created_at || "",
+    updatedAt: row.updated_at || "",
+  };
+};
+
+const mapMatchToDb = (data: any) => {
+  return {
+    date: data.date || null,
+    match_code: data.matchCode || null,
+    league: data.league || null,
+    total_game: data.totalGame ? String(data.totalGame) : null,
+    game_no: data.gameNo ? String(data.gameNo) : null,
+    map: data.map || null,
+    live_link: data.liveLink || null,
+    teams: data.teams || null,
+  };
+};
+
+const mapRosterFromDb = (row: any) => {
+  if (!row) return null;
+  return {
+    id: String(row.id),
+    name: row.name || "",
+    role: row.role || "",
+    team: row.team || "",
+    league: row.league || "",
+    createdAt: row.created_at || "",
+    updatedAt: row.updated_at || "",
+  };
+};
+
+const mapRosterToDb = (player: any) => {
+  return {
+    name: player.name || "",
+    role: player.role || null,
+    team: player.team || null,
+    league: player.league || null,
+  };
+};
 
 // Map standard PUBGM placement points system
 const calculatePlacementPoints = (placement: number): number => {
@@ -81,15 +134,15 @@ export const sortMatches = (matches: any[]) => {
 };
 
 const initialRoster = [
-  { id: "1", name: "Microboy", role: "Player", team: "Level Up Indonesia", league: "PMSL SEA" },
-  { id: "2", name: "Ryzen", role: "Player", team: "Level Up Indonesia", league: "PMSL SEA" },
-  { id: "3", name: "Zuxxy", role: "Player", team: "Level Up Indonesia", league: "PMSL SEA" },
-  { id: "4", name: "Luxxy", role: "Player", team: "Level Up Indonesia", league: "PMSL SEA" },
-  { id: "5", name: "S1nyo", role: "Coach", team: "Level Up Indonesia", league: "PMSL SEA" },
-  { id: "6", name: "Potato", role: "Player", team: "Alter Ego DX", league: "PMSL SEA" },
-  { id: "7", name: "Rosemary", role: "Player", team: "Alter Ego DX", league: "PMSL SEA" },
-  { id: "8", name: "Okta", role: "Player", team: "Alter Ego DX", league: "PMSL SEA" },
-  { id: "9", name: "Lyle", role: "Player", team: "Alter Ego DX", league: "PMSL SEA" }
+  { name: "Microboy", role: "Player", team: "Level Up Indonesia", league: "PMSL SEA" },
+  { name: "Ryzen", role: "Player", team: "Level Up Indonesia", league: "PMSL SEA" },
+  { name: "Zuxxy", role: "Player", team: "Level Up Indonesia", league: "PMSL SEA" },
+  { name: "Luxxy", role: "Player", team: "Level Up Indonesia", league: "PMSL SEA" },
+  { name: "S1nyo", role: "Coach", team: "Level Up Indonesia", league: "PMSL SEA" },
+  { name: "Potato", role: "Player", team: "Alter Ego DX", league: "PMSL SEA" },
+  { name: "Rosemary", role: "Player", team: "Alter Ego DX", league: "PMSL SEA" },
+  { name: "Okta", role: "Player", team: "Alter Ego DX", league: "PMSL SEA" },
+  { name: "Lyle", role: "Player", team: "Alter Ego DX", league: "PMSL SEA" }
 ];
 
 export const clientDb = {
@@ -97,98 +150,74 @@ export const clientDb = {
     return window.location.hostname.endsWith(".github.io") || window.location.search.includes("mode=static");
   },
 
+  // Static/GitHub Pages mode has no server, so it talks to Supabase directly
+  // from the browser using the (safe-to-expose) anon key - same tables and
+  // column mapping as server.ts, so data is shared with everyone, not just
+  // the local browser.
   getMatches: async (): Promise<Match[]> => {
-    const stored = localStorage.getItem("pubgm_static_matches");
-    if (!stored) return [];
-    try {
-      const matches = JSON.parse(stored);
-      return sortMatches(matches.map((m: any) => formatMatchData(m)));
-    } catch {
-      return [];
-    }
+    const { data: rawMatches, error } = await getBrowserSupabase().from("matches").select("*");
+    if (error) throw error;
+    const formatted = (rawMatches || []).map((m: any) => mapMatchFromDb(m));
+    return sortMatches(formatted.map((m: any) => formatMatchData(m)));
   },
 
   addMatch: async (matchData: any): Promise<string> => {
-    const stored = localStorage.getItem("pubgm_static_matches");
-    const matches = stored ? JSON.parse(stored) : [];
-    const newId = String(Date.now());
-    const newMatch = { ...matchData, id: newId, createdAt: new Date().toISOString() };
-    matches.push(newMatch);
-    localStorage.setItem("pubgm_static_matches", JSON.stringify(matches));
-    return newId;
+    const dbObj: any = mapMatchToDb(matchData);
+    dbObj.created_at = new Date().toISOString();
+    const { data, error } = await getBrowserSupabase().from("matches").insert([dbObj]).select("id").single();
+    if (error) throw error;
+    return String(data.id);
   },
 
   updateMatch: async (id: string, matchData: any): Promise<void> => {
-    const stored = localStorage.getItem("pubgm_static_matches");
-    if (!stored) return;
-    try {
-      const matches = JSON.parse(stored);
-      const index = matches.findIndex((m: any) => String(m.id) === id);
-      if (index !== -1) {
-        const { id: _, ...toSave } = matchData;
-        matches[index] = { ...matches[index], ...toSave, updatedAt: new Date().toISOString() };
-        localStorage.setItem("pubgm_static_matches", JSON.stringify(matches));
-      }
-    } catch (e) {
-      console.error(e);
-    }
+    const dbObj: any = mapMatchToDb(matchData);
+    dbObj.updated_at = new Date().toISOString();
+    const { error } = await getBrowserSupabase().from("matches").update(dbObj).eq("id", id);
+    if (error) throw error;
   },
 
   deleteMatch: async (id: string): Promise<void> => {
-    const stored = localStorage.getItem("pubgm_static_matches");
-    if (!stored) return;
-    try {
-      const matches = JSON.parse(stored);
-      const filtered = matches.filter((m: any) => String(m.id) !== id);
-      localStorage.setItem("pubgm_static_matches", JSON.stringify(filtered));
-    } catch (e) {
-      console.error(e);
-    }
+    const { error } = await getBrowserSupabase().from("matches").delete().eq("id", id);
+    if (error) throw error;
   },
 
   getRoster: async (): Promise<any[]> => {
-    const stored = localStorage.getItem("pubgm_static_roster");
-    if (!stored) {
-      localStorage.setItem("pubgm_static_roster", JSON.stringify(initialRoster));
-      return initialRoster;
+    const { data: rawRoster, error } = await getBrowserSupabase().from("roster").select("*");
+    if (error) throw error;
+
+    if (!rawRoster || rawRoster.length === 0) {
+      const saved: any[] = [];
+      for (const p of initialRoster) {
+        const dbObj: any = mapRosterToDb(p);
+        dbObj.created_at = new Date().toISOString();
+        const { data: inserted, error: insertErr } = await getBrowserSupabase().from("roster").insert([dbObj]).select("id").single();
+        if (insertErr) throw insertErr;
+        saved.push({ id: String(inserted.id), ...p });
+      }
+      return saved;
     }
-    try {
-      return JSON.parse(stored);
-    } catch {
-      return initialRoster;
-    }
+
+    return rawRoster.map((r: any) => mapRosterFromDb(r));
   },
 
   saveRosterPlayer: async (player: any): Promise<string> => {
-    const stored = localStorage.getItem("pubgm_static_roster");
-    const roster = stored ? JSON.parse(stored) : [...initialRoster];
     if (player.id) {
-      const index = roster.findIndex((p: any) => String(p.id) === String(player.id));
-      if (index !== -1) {
-        const { id, ...data } = player;
-        roster[index] = { ...roster[index], ...data, updatedAt: new Date().toISOString() };
-      }
-      localStorage.setItem("pubgm_static_roster", JSON.stringify(roster));
+      const dbObj: any = mapRosterToDb(player);
+      dbObj.updated_at = new Date().toISOString();
+      const { error } = await getBrowserSupabase().from("roster").update(dbObj).eq("id", player.id);
+      if (error) throw error;
       return player.id;
-    } else {
-      const newId = String(Date.now());
-      const newPlayer = { ...player, id: newId, createdAt: new Date().toISOString() };
-      roster.push(newPlayer);
-      localStorage.setItem("pubgm_static_roster", JSON.stringify(roster));
-      return newId;
     }
+    const dbObj: any = mapRosterToDb(player);
+    dbObj.created_at = new Date().toISOString();
+    const { data: inserted, error } = await getBrowserSupabase().from("roster").insert([dbObj]).select("id").single();
+    if (error) throw error;
+    return String(inserted.id);
   },
 
   deleteRosterPlayer: async (id: string): Promise<void> => {
-    const stored = localStorage.getItem("pubgm_static_roster");
-    if (!stored) return;
-    try {
-      const roster = JSON.parse(stored);
-      const filtered = roster.filter((p: any) => String(p.id) !== String(id));
-      localStorage.setItem("pubgm_static_roster", JSON.stringify(filtered));
-    } catch (e) {
-      console.error(e);
-    }
+    const { error } = await getBrowserSupabase().from("roster").delete().eq("id", id);
+    if (error) throw error;
   },
 
   // NOTE: this only gates local-only (per-browser) data in static/GitHub Pages
