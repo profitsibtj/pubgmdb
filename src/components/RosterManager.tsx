@@ -307,7 +307,7 @@ export const RosterManager: React.FC<RosterManagerProps> = ({
             <button
               onClick={() => setPassModal({ isOpen: true, password: "", error: "", actionType: "unlock", targetId: "" })}
               className={`px-4 py-2 text-xs font-semibold border rounded-xl shadow transition-all flex items-center gap-1.5 cursor-pointer ${
-                isDarkMode ? "bg-slate-800 hover:bg-slate-750 text-slate-200 border-slate-700" : "bg-slate-100 hover:bg-slate-200 text-slate-800 border-slate-200"
+                isDarkMode ? "bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700" : "bg-slate-100 hover:bg-slate-200 text-slate-800 border-slate-200"
               }`}
             >
               <Unlock className="w-4 h-4 shrink-0 text-amber-500" />
@@ -420,7 +420,7 @@ export const RosterManager: React.FC<RosterManagerProps> = ({
                     <button
                       type="button"
                       onClick={() => setUseCustomTeam(false)}
-                      className={`px-3 py-2 text-[10px] font-bold rounded-lg border cursor-pointer transition-colors ${isDarkMode ? "bg-slate-850 hover:bg-slate-800 text-slate-300 border-slate-700" : "bg-slate-150 hover:bg-slate-200 text-slate-700 border-slate-300"}`}
+                      className={`px-3 py-2 text-[10px] font-bold rounded-lg border cursor-pointer transition-colors ${isDarkMode ? "bg-slate-850 hover:bg-slate-800 text-slate-300 border-slate-700" : "bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300"}`}
                     >
                       Pilih dari Roster
                     </button>
@@ -488,7 +488,7 @@ export const RosterManager: React.FC<RosterManagerProps> = ({
               <button
                 type="button"
                 onClick={() => { setIsFormOpen(false); setEditingPlayer(null); }}
-                className={`px-4 py-2 border rounded-xl cursor-pointer ${isDarkMode ? "bg-slate-800 hover:bg-slate-750 text-slate-400 border-slate-750" : "bg-slate-100 hover:bg-slate-200 text-slate-600 border-slate-200"}`}
+                className={`px-4 py-2 border rounded-xl cursor-pointer ${isDarkMode ? "bg-slate-800 hover:bg-slate-700 text-slate-400 border-slate-700" : "bg-slate-100 hover:bg-slate-200 text-slate-600 border-slate-200"}`}
               >
                 Cancel
               </button>
@@ -621,7 +621,7 @@ export const RosterManager: React.FC<RosterManagerProps> = ({
       {/* ADMIN ACTION PASSCODE MODAL */}
       {passModal.isOpen && (
         <div className={`fixed inset-0 backdrop-blur-sm flex items-center justify-center z-[100] p-4 transition-colors duration-200 ${isDarkMode ? "bg-slate-950/80" : "bg-slate-900/40"}`}>
-          <div className={`w-full max-w-sm border rounded-2xl shadow-2xl overflow-hidden animate-fadeIn transition-colors duration-200 ${isDarkMode ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200 text-slate-850"}`}>
+          <div className={`w-full max-w-sm border rounded-2xl shadow-2xl overflow-hidden animate-fadeIn transition-colors duration-200 ${isDarkMode ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200 text-slate-800"}`}>
             <div className="bg-gradient-to-r from-amber-600 to-amber-500 p-5 text-slate-950 flex flex-col items-center">
               <div className={`p-2.5 rounded-full mb-2 ${isDarkMode ? "bg-slate-950 text-amber-400" : "bg-white/40 text-slate-950"}`}>
                 <Lock className="w-5 h-5" />
@@ -658,7 +658,7 @@ export const RosterManager: React.FC<RosterManagerProps> = ({
                 <button
                   type="button"
                   onClick={() => setPassModal({ isOpen: false, password: "", error: "", actionType: "unlock", targetId: "" })}
-                  className={`flex-1 border rounded-lg py-2 font-bold cursor-pointer transition-all text-center ${isDarkMode ? "bg-slate-800 hover:bg-slate-750 text-slate-400 hover:text-slate-200 border-slate-750" : "bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-850 border-slate-200"}`}
+                  className={`flex-1 border rounded-lg py-2 font-bold cursor-pointer transition-all text-center ${isDarkMode ? "bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 border-slate-700" : "bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-800 border-slate-200"}`}
                 >
                   Batal
                 </button>
@@ -678,9 +678,9 @@ export const RosterManager: React.FC<RosterManagerProps> = ({
       {/* CUSTOM DELETE CONFIRMATION MODAL */}
       {deleteConfirmModal.isOpen && (
         <div className={`fixed inset-0 backdrop-blur-sm flex items-center justify-center z-[110] p-4 transition-colors duration-200 ${isDarkMode ? "bg-slate-950/80" : "bg-slate-900/40"}`}>
-          <div className={`w-full max-w-sm border rounded-2xl shadow-2xl overflow-hidden animate-fadeIn transition-colors duration-200 ${isDarkMode ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200 text-slate-850"}`}>
+          <div className={`w-full max-w-sm border rounded-2xl shadow-2xl overflow-hidden animate-fadeIn transition-colors duration-200 ${isDarkMode ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200 text-slate-800"}`}>
             <div className="bg-red-600 p-5 text-white flex flex-col items-center">
-              <div className={`p-2.5 rounded-full mb-2 ${isDarkMode ? "bg-slate-950 text-red-500" : "bg-white/40 text-red-750"}`}>
+              <div className={`p-2.5 rounded-full mb-2 ${isDarkMode ? "bg-slate-950 text-red-500" : "bg-white/40 text-red-600"}`}>
                 <Trash2 className="w-5 h-5" />
               </div>
               <h3 className="text-sm font-bold tracking-tight text-center uppercase">
@@ -692,7 +692,7 @@ export const RosterManager: React.FC<RosterManagerProps> = ({
             </div>
 
             <div className="p-6 space-y-4 text-xs text-center">
-              <p className={`${isDarkMode ? "text-slate-350" : "text-slate-650"}`}>
+              <p className={`${isDarkMode ? "text-slate-300" : "text-slate-600"}`}>
                 Apakah Anda yakin ingin menghapus pemain ini dari daftar roster secara permanen?
               </p>
 
@@ -700,7 +700,7 @@ export const RosterManager: React.FC<RosterManagerProps> = ({
                 <button
                   type="button"
                   onClick={() => setDeleteConfirmModal({ isOpen: false, targetId: "" })}
-                  className={`flex-1 border rounded-lg py-2 font-bold cursor-pointer transition-all text-center ${isDarkMode ? "bg-slate-800 hover:bg-slate-750 text-slate-400 hover:text-slate-200 border-slate-750" : "bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-850 border-slate-200"}`}
+                  className={`flex-1 border rounded-lg py-2 font-bold cursor-pointer transition-all text-center ${isDarkMode ? "bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 border-slate-700" : "bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-800 border-slate-200"}`}
                 >
                   Batal
                 </button>
@@ -710,7 +710,7 @@ export const RosterManager: React.FC<RosterManagerProps> = ({
                     onDeletePlayer(deleteConfirmModal.targetId);
                     setDeleteConfirmModal({ isOpen: false, targetId: "" });
                   }}
-                  className="flex-1 bg-red-600 hover:bg-red-500 active:bg-red-700 text-white rounded-lg py-2 font-bold cursor-pointer transition-all flex items-center justify-center gap-1 shadow-lg shadow-red-650/10"
+                  className="flex-1 bg-red-600 hover:bg-red-500 active:bg-red-700 text-white rounded-lg py-2 font-bold cursor-pointer transition-all flex items-center justify-center gap-1 shadow-lg shadow-red-600/10"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                   <span>Ya, Hapus</span>
