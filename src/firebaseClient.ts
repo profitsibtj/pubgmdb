@@ -133,18 +133,6 @@ export const sortMatches = (matches: any[]) => {
   });
 };
 
-const initialRoster = [
-  { name: "Microboy", role: "Player", team: "Level Up Indonesia", league: "PMSL SEA" },
-  { name: "Ryzen", role: "Player", team: "Level Up Indonesia", league: "PMSL SEA" },
-  { name: "Zuxxy", role: "Player", team: "Level Up Indonesia", league: "PMSL SEA" },
-  { name: "Luxxy", role: "Player", team: "Level Up Indonesia", league: "PMSL SEA" },
-  { name: "S1nyo", role: "Coach", team: "Level Up Indonesia", league: "PMSL SEA" },
-  { name: "Potato", role: "Player", team: "Alter Ego DX", league: "PMSL SEA" },
-  { name: "Rosemary", role: "Player", team: "Alter Ego DX", league: "PMSL SEA" },
-  { name: "Okta", role: "Player", team: "Alter Ego DX", league: "PMSL SEA" },
-  { name: "Lyle", role: "Player", team: "Alter Ego DX", league: "PMSL SEA" }
-];
-
 export const clientDb = {
   getIsStatic: () => {
     return window.location.hostname.endsWith(".github.io") || window.location.search.includes("mode=static");
@@ -184,20 +172,7 @@ export const clientDb = {
   getRoster: async (): Promise<any[]> => {
     const { data: rawRoster, error } = await getBrowserSupabase().from("roster").select("*");
     if (error) throw error;
-
-    if (!rawRoster || rawRoster.length === 0) {
-      const saved: any[] = [];
-      for (const p of initialRoster) {
-        const dbObj: any = mapRosterToDb(p);
-        dbObj.created_at = new Date().toISOString();
-        const { data: inserted, error: insertErr } = await getBrowserSupabase().from("roster").insert([dbObj]).select("id").single();
-        if (insertErr) throw insertErr;
-        saved.push({ id: String(inserted.id), ...p });
-      }
-      return saved;
-    }
-
-    return rawRoster.map((r: any) => mapRosterFromDb(r));
+    return (rawRoster || []).map((r: any) => mapRosterFromDb(r));
   },
 
   saveRosterPlayer: async (player: any): Promise<string> => {
