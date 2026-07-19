@@ -269,19 +269,6 @@ app.put("/api/matches/:id", checkAdminAuth, async (req, res) => {
   }
 });
 
-// Initial Roster Setup
-const initialRoster = [
-  { name: "Microboy", role: "Player", team: "Level Up Indonesia", league: "PMSL SEA" },
-  { name: "Ryzen", role: "Player", team: "Level Up Indonesia", league: "PMSL SEA" },
-  { name: "Zuxxy", role: "Player", team: "Level Up Indonesia", league: "PMSL SEA" },
-  { name: "Luxxy", role: "Player", team: "Level Up Indonesia", league: "PMSL SEA" },
-  { name: "S1nyo", role: "Coach", team: "Level Up Indonesia", league: "PMSL SEA" },
-  { name: "Potato", role: "Player", team: "Alter Ego DX", league: "PMSL SEA" },
-  { name: "Rosemary", role: "Player", team: "Alter Ego DX", league: "PMSL SEA" },
-  { name: "Okta", role: "Player", team: "Alter Ego DX", league: "PMSL SEA" },
-  { name: "Lyle", role: "Player", team: "Alter Ego DX", league: "PMSL SEA" }
-];
-
 app.get("/api/roster", async (req, res) => {
   try {
     const { data: rawRoster, error } = await getSupabase().from("roster").select("*");
@@ -294,36 +281,8 @@ app.get("/api/roster", async (req, res) => {
       }
       throw error;
     }
-    
-    if (!rawRoster || rawRoster.length === 0) {
-      const saved: any[] = [];
-      try {
-        for (const p of initialRoster) {
-          const dbObj: any = mapRosterToDb(p);
-          dbObj.created_at = new Date().toISOString();
-          const { data: inserted, error: insertErr } = await getSupabase().from("roster").insert([dbObj]).select("id").single();
-          if (insertErr) throw insertErr;
-          
-          saved.push({ id: String(inserted.id), ...p });
-        }
-        res.json(saved);
-      } catch (seedErr: any) {
-        console.warn("⚠️ Database seeding was blocked or failed (possibly due to RLS policies):", seedErr.message || seedErr);
-        const fallbackRoster = initialRoster.map((p, index) => ({
-          id: String(index + 1),
-          name: p.name,
-          role: p.role,
-          team: p.team,
-          league: p.league,
-          createdAt: new Date().toISOString(),
-          updatedAt: ""
-        }));
-        res.setHeader("x-supabase-rls-warning", "true");
-        res.json(fallbackRoster);
-      }
-    } else {
-      res.json(rawRoster.map(r => mapRosterFromDb(r)));
-    }
+
+    res.json((rawRoster || []).map(r => mapRosterFromDb(r)));
   } catch (error: any) {
     console.error("Error in GET /api/roster:", error);
     res.status(500).json({ error: error.message });
