@@ -362,8 +362,8 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
               onChange={(e) => setSelectedTeam(e.target.value)}
               disabled={selectedLeague === "ALL"}
               className={`w-full p-2 rounded-lg text-xs font-mono border focus:outline-none focus:ring-1 focus:ring-amber-500 cursor-pointer transition-all ${
-                selectedLeague === "ALL" 
-                  ? "opacity-50 cursor-not-allowed bg-slate-100 dark:bg-slate-900 text-slate-400"
+                selectedLeague === "ALL"
+                  ? `opacity-50 cursor-not-allowed text-slate-400 ${isDarkMode ? "bg-slate-900" : "bg-slate-100"}`
                   : isDarkMode ? "bg-slate-950 border-slate-800 text-white" : "bg-slate-50 border-slate-300 text-slate-900"
               }`}
             >
@@ -669,7 +669,7 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
       {/* ADMIN ACTION PASSCODE MODAL */}
       {passModal.isOpen && (
         <div className={`fixed inset-0 backdrop-blur-sm flex items-center justify-center z-[100] p-4 transition-colors duration-200 ${isDarkMode ? "bg-slate-950/80" : "bg-slate-900/40"}`}>
-          <div className={`w-full max-w-sm border rounded-2xl shadow-2xl overflow-hidden animate-fadeIn transition-colors duration-200 ${isDarkMode ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200 text-slate-850"}`}>
+          <div className={`w-full max-w-sm border rounded-2xl shadow-2xl overflow-hidden animate-fadeIn transition-colors duration-200 ${isDarkMode ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200 text-slate-800"}`}>
             <div className="bg-gradient-to-r from-amber-600 to-amber-500 p-5 text-slate-950 flex flex-col items-center">
               <div className={`p-2.5 rounded-full mb-2 ${isDarkMode ? "bg-slate-950 text-amber-400" : "bg-white/40 text-slate-950"}`}>
                 <Lock className="w-5 h-5" />
@@ -729,9 +729,9 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
       {/* CUSTOM DELETE CONFIRMATION MODAL */}
       {deleteConfirmModal.isOpen && (
         <div className={`fixed inset-0 backdrop-blur-sm flex items-center justify-center z-[110] p-4 transition-colors duration-200 ${isDarkMode ? "bg-slate-950/80" : "bg-slate-900/40"}`}>
-          <div className={`w-full max-w-sm border rounded-2xl shadow-2xl overflow-hidden animate-fadeIn transition-colors duration-200 ${isDarkMode ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200 text-slate-850"}`}>
+          <div className={`w-full max-w-sm border rounded-2xl shadow-2xl overflow-hidden animate-fadeIn transition-colors duration-200 ${isDarkMode ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200 text-slate-800"}`}>
             <div className="bg-red-600 p-5 text-white flex flex-col items-center">
-              <div className={`p-2.5 rounded-full mb-2 ${isDarkMode ? "bg-slate-950 text-red-500" : "bg-white/40 text-red-750"}`}>
+              <div className={`p-2.5 rounded-full mb-2 ${isDarkMode ? "bg-slate-950 text-red-500" : "bg-white/40 text-red-600"}`}>
                 <Trash2 className="w-5 h-5" />
               </div>
               <h3 className="text-sm font-bold tracking-tight text-center uppercase font-mono">
@@ -743,7 +743,7 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
             </div>
 
             <div className="p-6 space-y-4 text-xs text-center font-mono">
-              <p className={`${isDarkMode ? "text-slate-350" : "text-slate-650"}`}>
+              <p className={`${isDarkMode ? "text-slate-300" : "text-slate-600"}`}>
                 Apakah Anda yakin ingin menghapus seluruh data stats player "{deleteConfirmModal.playerName}" dari semua match record secara permanen?
               </p>
 
@@ -751,7 +751,7 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
                 <button
                   type="button"
                   onClick={() => setDeleteConfirmModal({ isOpen: false, playerName: "" })}
-                  className={`flex-1 border rounded-lg py-2 font-bold cursor-pointer transition-all text-center ${isDarkMode ? "bg-slate-800 hover:bg-slate-750 text-slate-400 hover:text-slate-200 border-slate-750" : "bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-850 border-slate-200"}`}
+                  className={`flex-1 border rounded-lg py-2 font-bold cursor-pointer transition-all text-center ${isDarkMode ? "bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 border-slate-700" : "bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-800 border-slate-200"}`}
                 >
                   Batal
                 </button>
@@ -763,7 +763,7 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
                     }
                     setDeleteConfirmModal({ isOpen: false, playerName: "" });
                   }}
-                  className="flex-1 bg-red-600 hover:bg-red-500 active:bg-red-700 text-white rounded-lg py-2 font-bold cursor-pointer transition-all flex items-center justify-center gap-1 shadow-lg shadow-red-650/10"
+                  className="flex-1 bg-red-600 hover:bg-red-500 active:bg-red-700 text-white rounded-lg py-2 font-bold cursor-pointer transition-all flex items-center justify-center gap-1 shadow-lg shadow-red-600/10"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                   <span>Ya, Hapus</span>
