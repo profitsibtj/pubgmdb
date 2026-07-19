@@ -555,7 +555,7 @@ export const RosterManager: React.FC<RosterManagerProps> = ({
                   <div className="flex flex-col gap-2.5 w-full">
                     {teamPlayers
                       .sort((a, b) => {
-                        const rolesOrder = ["Coach", "Analis", "Player", "COACH", "ANALIS", "PLAYER"];
+                        const rolesOrder = ["Player", "Coach", "Analis", "PLAYER", "COACH", "ANALIS"];
                         const idxA = rolesOrder.indexOf(a.role || "Player");
                         const idxB = rolesOrder.indexOf(b.role || "Player");
                         if (idxA !== idxB) return idxA - idxB;
