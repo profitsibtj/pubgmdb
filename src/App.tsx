@@ -250,6 +250,10 @@ export default function App() {
         if (data && data.length > 0) {
           setTournaments(data);
           localStorage.setItem("tournaments_list_v4", JSON.stringify(data));
+        } else {
+          // Fresh database with no tournaments yet - seed it with the current
+          // (default) local list so every browser starts from the same state.
+          await persistTournaments(tournaments);
         }
         return;
       }
@@ -272,6 +276,8 @@ export default function App() {
         const errData = await res.json().catch(() => ({}));
         if (errData.error === "DATABASE_SETUP_NEEDED") {
           setSupabaseSetupNeeded(true);
+        } else {
+          showToast(errData.message || errData.error || "Gagal memuat data turnamen dari database.", "error");
         }
       }
     } catch (err: any) {
@@ -280,9 +286,12 @@ export default function App() {
         if (data && data.length > 0) {
           setTournaments(data);
           localStorage.setItem("tournaments_list_v4", JSON.stringify(data));
+        } else {
+          await persistTournaments(tournaments);
         }
       } catch (clientErr: any) {
         console.error("Error fetching tournaments:", err);
+        showToast("Gagal memuat data turnamen dari database: " + clientErr.message, "error");
       }
     }
   };
