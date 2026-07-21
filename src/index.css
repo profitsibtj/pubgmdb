@@ -8,6 +8,16 @@
   --color-slate-850: rgba(255, 255, 255, 0.08);
 }
 
+/* Fade-in entrance transition used throughout the app (modals, tab panels, lists).
+   Defined manually since Tailwind v4 has no built-in "fadeIn" utility. */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.animate-fadeIn {
+  animation: fadeIn 0.2s ease-out;
+}
+
 /* Custom Scrollbar */
 ::-webkit-scrollbar {
   width: 6px;
@@ -138,10 +148,6 @@ input[type="number"] {
 
 .light .text-slate-500 {
   color: #64748b !important; /* slate-500 */
-}
-
-.light .text-white {
-  color: #0f172a !important; /* slate-900 */
 }
 
 .light select, .light input, .light textarea {

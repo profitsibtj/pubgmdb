@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from "react";
 import { Match, Team } from "../types";
 import { 
-  Trophy, Star, Calendar, Search, Info, BarChart2
+  Trophy, Star, Calendar, Search, BarChart2
 } from "lucide-react";
 
 interface TournamentStandingsProps {

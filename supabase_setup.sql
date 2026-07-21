@@ -25,8 +25,18 @@ create table if not exists public.roster (
   updated_at timestamptz
 );
 
+-- One row per tournament preset (name, format, group rosters, etc.), stored
+-- as a single jsonb blob - the shape is defined and versioned on the frontend.
+create table if not exists public.tournaments (
+  id text primary key,
+  data jsonb not null,
+  created_at timestamptz default now(),
+  updated_at timestamptz
+);
+
 alter table public.matches enable row level security;
 alter table public.roster enable row level security;
+alter table public.tournaments enable row level security;
 
 -- Kebijakan akses: siapa pun yang punya anon key (memang ditujukan publik)
 -- boleh baca/tulis. Sama seperti password PIN di aplikasi, ini bukan
@@ -48,3 +58,12 @@ create policy "public read roster" on public.roster for select using (true);
 create policy "public write roster" on public.roster for insert with check (true);
 create policy "public update roster" on public.roster for update using (true) with check (true);
 create policy "public delete roster" on public.roster for delete using (true);
+
+drop policy if exists "public read tournaments" on public.tournaments;
+drop policy if exists "public write tournaments" on public.tournaments;
+drop policy if exists "public update tournaments" on public.tournaments;
+drop policy if exists "public delete tournaments" on public.tournaments;
+create policy "public read tournaments" on public.tournaments for select using (true);
+create policy "public write tournaments" on public.tournaments for insert with check (true);
+create policy "public update tournaments" on public.tournaments for update using (true) with check (true);
+create policy "public delete tournaments" on public.tournaments for delete using (true);

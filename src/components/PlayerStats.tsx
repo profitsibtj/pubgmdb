@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect } from "react";
 import { Match } from "../types";
 import { calculatePlacementPoints } from "../utils";
 import { 
-  Search, Activity, User, Star, Award, Grid, List, Settings, Swords, Image, Upload, X, Trash2, Lock, ShieldAlert
+  Search, User, Award, Grid, List, Trash2, Lock, ShieldAlert
 } from "lucide-react";
 
 interface PlayerStatsProps {
@@ -267,12 +267,6 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
         return valB - valA;
       });
   }, [playerStats, searchTerm, sortBy]);
-
-  const formatTime = (secs: number) => {
-    const m = Math.floor(secs / 60);
-    const s = secs % 60;
-    return `${m}:${s.toString().padStart(2, "0")}`;
-  };
 
   const getPlayerBadge = (p: typeof playerStats[0]) => {
     if (p.avgElims >= 3.0) return { label: "Terminator", color: "bg-red-500/15 border-red-500/30 text-red-400" };

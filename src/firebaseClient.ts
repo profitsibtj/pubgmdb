@@ -1,4 +1,4 @@
-import { Match, Player } from "./types";
+import { Match } from "./types";
 import { getBrowserSupabase } from "./supabaseBrowserClient";
 
 const mapMatchFromDb = (row: any) => {
@@ -193,6 +193,28 @@ export const clientDb = {
   deleteRosterPlayer: async (id: string): Promise<void> => {
     const { error } = await getBrowserSupabase().from("roster").delete().eq("id", id);
     if (error) throw error;
+  },
+
+  getTournaments: async (): Promise<any[]> => {
+    const { data, error } = await getBrowserSupabase().from("tournaments").select("*").order("created_at", { ascending: true });
+    if (error) throw error;
+    return (data || []).map((row: any) => ({ id: row.id, ...(row.data || {}) }));
+  },
+
+  // Full sync, matching the server's PUT /api/tournaments behavior: upserts
+  // every tournament passed in and deletes any row not present in the list.
+  saveTournaments: async (tournaments: any[]): Promise<void> => {
+    const nowIso = new Date().toISOString();
+    const rows = tournaments.map((t: any) => {
+      const { id, ...rest } = t;
+      return { id: String(id), data: rest, updated_at: nowIso };
+    });
+    const { error: upsertError } = await getBrowserSupabase().from("tournaments").upsert(rows, { onConflict: "id" });
+    if (upsertError) throw upsertError;
+
+    const keepIds = rows.map((r: any) => r.id);
+    const { error: deleteError } = await getBrowserSupabase().from("tournaments").delete().not("id", "in", `(${keepIds.join(",")})`);
+    if (deleteError) throw deleteError;
   },
 
   // NOTE: this only gates local-only (per-browser) data in static/GitHub Pages

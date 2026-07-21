@@ -57,6 +57,14 @@ const mapRosterToDb = (player: any) => {
   };
 };
 
+// Tournaments are stored as one row per tournament, with the whole preset
+// (name, format, group rosters, etc.) kept as a single jsonb blob - the shape
+// is defined and versioned entirely on the frontend (see TournamentPreset).
+const mapTournamentFromDb = (row: any) => {
+  if (!row) return null;
+  return { id: row.id, ...(row.data || {}) };
+};
+
 dotenv.config();
 
 const app = express();
@@ -334,6 +342,59 @@ app.delete("/api/roster/:id", async (req, res) => {
     res.json({ success: true });
   } catch (error: any) {
     console.error("Error in DELETE /api/roster:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Tournaments Endpoints
+// Reads are gated by the regular access password (every logged-in user needs
+// the shared tournament/group config); writes require the admin action
+// password, same as matches/roster.
+app.get("/api/tournaments", checkAuth, async (req, res) => {
+  try {
+    const { data: rawTournaments, error } = await getSupabase().from("tournaments").select("*").order("created_at", { ascending: true });
+    if (error) {
+      if (error.code === "PGRST205" || error.message?.includes("relation \"tournaments\" does not exist")) {
+        return res.status(409).json({
+          error: "DATABASE_SETUP_NEEDED",
+          message: "Tabel 'tournaments' belum dibuat di database Supabase Anda."
+        });
+      }
+      throw error;
+    }
+    res.json((rawTournaments || []).map(t => mapTournamentFromDb(t)));
+  } catch (error: any) {
+    console.error("Error in GET /api/tournaments:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Full sync: the frontend always keeps the complete tournaments array in
+// state and sends it whole (create/edit/delete a preset all funnel through
+// here), so this upserts everything provided and drops rows that were removed.
+app.put("/api/tournaments", checkAdminAuth, async (req, res) => {
+  try {
+    const tournaments: any[] = Array.isArray(req.body.tournaments) ? req.body.tournaments : [];
+    if (tournaments.length === 0) {
+      return res.status(400).json({ error: "Minimal harus ada 1 turnamen terdaftar." });
+    }
+
+    const nowIso = new Date().toISOString();
+    const rows = tournaments.map((t: any) => {
+      const { id, ...rest } = t;
+      return { id: String(id), data: rest, updated_at: nowIso };
+    });
+
+    const { error: upsertError } = await getSupabase().from("tournaments").upsert(rows, { onConflict: "id" });
+    if (upsertError) throw upsertError;
+
+    const keepIds = rows.map(r => r.id);
+    const { error: deleteError } = await getSupabase().from("tournaments").delete().not("id", "in", `(${keepIds.join(",")})`);
+    if (deleteError) throw deleteError;
+
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error("Error in PUT /api/tournaments:", error);
     res.status(500).json({ error: error.message });
   }
 });

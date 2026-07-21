@@ -1,6 +1,6 @@
 import React, { useState } from "react";
-import { Match, Team, Player } from "../types";
-import { PUBGM_WEAPONS, calculatePlacementPoints } from "../utils";
+import { Match, Team } from "../types";
+import { calculatePlacementPoints } from "../utils";
 import {
   Plus, Trash2, RefreshCw, AlertTriangle, Save, GripVertical, Layers,
   Upload, X, Image, Settings
@@ -65,154 +65,6 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
   const [teams, setTeams] = useState<Team[]>([
     createEmptyTeam("Level Up Indonesia", 1)
   ]);
-
-  const [selectedTeamIdxForPlayers, setSelectedTeamIdxForPlayers] = useState<number | null>(null);
-  const [activeInputTab, setActiveInputTab] = useState<"nama" | "kill" | "damage" | "assist">("nama");
-
-  const handleSelectTeamForPlayers = (tIdx: number) => {
-    setSelectedTeamIdxForPlayers(tIdx);
-    const targetTeam = teams[tIdx];
-    if (targetTeam && (!targetTeam.players || targetTeam.players.length === 0)) {
-      // Find roster for this team in current tournament
-      const currentLeagueName = meta.league;
-      const rosterOptions = roster.filter(p => 
-        (p.team || "").toLowerCase().trim() === (targetTeam.name || "").toLowerCase().trim() &&
-        (p.league || "").toLowerCase().trim() === currentLeagueName.toLowerCase().trim()
-      );
-
-      if (rosterOptions.length > 0) {
-        setTeams(prev => {
-          const updated = [...prev];
-          updated[tIdx] = {
-            ...updated[tIdx],
-            players: rosterOptions.map(p => ({
-              name: p.name,
-              role: p.role || "PLAYER",
-              weapon: "M416",
-              elims: 0,
-              damage: 0,
-              assists: 0,
-              heals: 0,
-              mvp: false
-            }))
-          };
-          return updated;
-        });
-      }
-    }
-  };
-
-  const loadRosterForCurrentTeam = () => {
-    if (selectedTeamIdxForPlayers === null) return;
-    const targetTeam = teams[selectedTeamIdxForPlayers];
-    if (!targetTeam) return;
-
-    const currentLeagueName = meta.league;
-    const rosterOptions = roster.filter(p => 
-      (p.team || "").toLowerCase().trim() === (targetTeam.name || "").toLowerCase().trim() &&
-      (p.league || "").toLowerCase().trim() === currentLeagueName.toLowerCase().trim()
-    );
-
-    if (rosterOptions.length > 0) {
-      setTeams(prev => {
-        const updated = [...prev];
-        updated[selectedTeamIdxForPlayers] = {
-          ...updated[selectedTeamIdxForPlayers],
-          players: rosterOptions.map(p => ({
-            name: p.name,
-            role: p.role || "PLAYER",
-            weapon: "M416",
-            elims: 0,
-            damage: 0,
-            assists: 0,
-            heals: 0,
-            mvp: false
-          }))
-        };
-        
-        // Auto-sum elims to team eliminationPoints
-        const totalElims = updated[selectedTeamIdxForPlayers].players.reduce((sum, p) => sum + (Number(p.elims) || 0), 0);
-        updated[selectedTeamIdxForPlayers].eliminationPoints = totalElims;
-        const placementPoints = calculatePlacementPoints(updated[selectedTeamIdxForPlayers].placement);
-        updated[selectedTeamIdxForPlayers].totalPoints = placementPoints + totalElims;
-
-        return updated;
-      });
-    }
-  };
-
-  const updatePlayerStat = (playerIdx: number, field: keyof Player, value: any) => {
-    if (selectedTeamIdxForPlayers === null) return;
-    setTeams(prev => {
-      const updatedTeams = [...prev];
-      const targetTeam = { ...updatedTeams[selectedTeamIdxForPlayers] };
-      const updatedPlayers = [...(targetTeam.players || [])];
-      
-      updatedPlayers[playerIdx] = {
-        ...updatedPlayers[playerIdx],
-        [field]: value
-      };
-      
-      // Auto-sum elims to team eliminationPoints
-      const totalElims = updatedPlayers.reduce((sum, p) => sum + (Number(p.elims) || 0), 0);
-      
-      targetTeam.players = updatedPlayers;
-      targetTeam.eliminationPoints = totalElims;
-      
-      const placementPoints = calculatePlacementPoints(targetTeam.placement);
-      targetTeam.totalPoints = placementPoints + totalElims;
-
-      updatedTeams[selectedTeamIdxForPlayers] = targetTeam;
-      return updatedTeams;
-    });
-  };
-
-  const addPlayerToTeam = () => {
-    if (selectedTeamIdxForPlayers === null) return;
-    setTeams(prev => {
-      const updatedTeams = [...prev];
-      const targetTeam = { ...updatedTeams[selectedTeamIdxForPlayers] };
-      const updatedPlayers = [...(targetTeam.players || [])];
-      
-      updatedPlayers.push({
-        name: "",
-        role: "PLAYER",
-        weapon: "M416",
-        elims: 0,
-        damage: 0,
-        assists: 0,
-        heals: 0,
-        mvp: false
-      });
-      
-      targetTeam.players = updatedPlayers;
-      updatedTeams[selectedTeamIdxForPlayers] = targetTeam;
-      return updatedTeams;
-    });
-  };
-
-  const removePlayerFromTeam = (playerIdx: number) => {
-    if (selectedTeamIdxForPlayers === null) return;
-    setTeams(prev => {
-      const updatedTeams = [...prev];
-      const targetTeam = { ...updatedTeams[selectedTeamIdxForPlayers] };
-      const updatedPlayers = [...(targetTeam.players || [])];
-      
-      updatedPlayers.splice(playerIdx, 1);
-      
-      // Re-sum elims
-      const totalElims = updatedPlayers.reduce((sum, p) => sum + (Number(p.elims) || 0), 0);
-      
-      targetTeam.players = updatedPlayers;
-      targetTeam.eliminationPoints = totalElims;
-      
-      const placementPoints = calculatePlacementPoints(targetTeam.placement);
-      targetTeam.totalPoints = placementPoints + totalElims;
-
-      updatedTeams[selectedTeamIdxForPlayers] = targetTeam;
-      return updatedTeams;
-    });
-  };
 
   interface TournamentPreset {
     id: string;
@@ -361,14 +213,12 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
   const currentGroupEText = activeTournament ? (activeWeek === "2" ? (activeTournament.groupEText_w2 || "") : activeWeek === "3" ? (activeTournament.groupEText_w3 || "") : (activeTournament.groupEText || "")) : "";
 
   const updateActiveTournament = (updates: Partial<TournamentPreset>) => {
-    setTournaments(prev => {
-      const updated = prev.map(t => t.id === selectedTournamentId ? { ...t, ...updates } : t);
-      localStorage.setItem("tournaments_list_v4", JSON.stringify(updated));
-      if (onUpdateTournaments) {
-        onUpdateTournaments(updated);
-      }
-      return updated;
-    });
+    const updated = tournaments.map(t => t.id === selectedTournamentId ? { ...t, ...updates } : t);
+    setTournaments(updated);
+    localStorage.setItem("tournaments_list_v4", JSON.stringify(updated));
+    if (onUpdateTournaments) {
+      onUpdateTournaments(updated);
+    }
   };
 
   // Team Logo states & management (moved from PlayerStats)
@@ -636,88 +486,6 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
     updateActiveTournament({ teams16Text: newText });
   };
 
-  const handleRandomize24GroupRotation = () => {
-    if (!activeTournament || activeTournament.format !== "24") return;
-    const week = activeTournament.activeWeek || "1";
-    if (!window.confirm(`Acak ulang 24 tim ke Group A, B, dan C untuk Week ${week}? Pembagian grup saat ini akan diganti, tetapi data match yang sudah tersimpan tidak berubah.`)) {
-      return;
-    }
-
-    const currentA = week === "2" ? (activeTournament.groupAText_w2 || "") : week === "3" ? (activeTournament.groupAText_w3 || "") : activeTournament.groupAText;
-    const currentB = week === "2" ? (activeTournament.groupBText_w2 || "") : week === "3" ? (activeTournament.groupBText_w3 || "") : activeTournament.groupBText;
-    const currentC = week === "2" ? (activeTournament.groupCText_w2 || "") : week === "3" ? (activeTournament.groupCText_w3 || "") : activeTournament.groupCText;
-
-    const allTeams = [
-      ...currentA.split("\n"),
-      ...currentB.split("\n"),
-      ...currentC.split("\n"),
-    ].map((team) => team.trim()).filter(Boolean);
-
-    const uniqueTeams = Array.from(new Set(allTeams));
-    while (uniqueTeams.length < 24) {
-      uniqueTeams.push(`Tim ${uniqueTeams.length + 1}`);
-    }
-
-    for (let index = uniqueTeams.length - 1; index > 0; index -= 1) {
-      const randomIndex = Math.floor(Math.random() * (index + 1));
-      [uniqueTeams[index], uniqueTeams[randomIndex]] = [uniqueTeams[randomIndex], uniqueTeams[index]];
-    }
-
-    const suffix = week === "1" ? "" : `_w${week}`;
-    updateActiveTournament({
-      [`groupAText${suffix}`]: uniqueTeams.slice(0, 8).join("\n"),
-      [`groupBText${suffix}`]: uniqueTeams.slice(8, 16).join("\n"),
-      [`groupCText${suffix}`]: uniqueTeams.slice(16, 24).join("\n"),
-      activeMatchup: "A_B",
-    });
-    setSuccessMsg(`Rotasi mingguan berhasil dibuat untuk Week ${week}: 8 tim per grup.`);
-    setTimeout(() => setSuccessMsg(""), 3000);
-  };
-
-  const handleRandomize20GroupRotation = () => {
-    if (!activeTournament || activeTournament.format !== "20") return;
-    const week = activeTournament.activeWeek || "1";
-    if (!window.confirm(`Acak ulang 20 tim ke Group A, B, C, D, dan E untuk Week ${week}? Pembagian grup saat ini akan diganti, tetapi data match yang sudah tersimpan tidak berubah.`)) {
-      return;
-    }
-
-    const currentA = week === "2" ? (activeTournament.groupAText_w2 || "") : week === "3" ? (activeTournament.groupAText_w3 || "") : activeTournament.groupAText;
-    const currentB = week === "2" ? (activeTournament.groupBText_w2 || "") : week === "3" ? (activeTournament.groupBText_w3 || "") : activeTournament.groupBText;
-    const currentC = week === "2" ? (activeTournament.groupCText_w2 || "") : week === "3" ? (activeTournament.groupCText_w3 || "") : activeTournament.groupCText;
-    const currentD = week === "2" ? (activeTournament.groupDText_w2 || "") : week === "3" ? (activeTournament.groupDText_w3 || "") : (activeTournament.groupDText || "");
-    const currentE = week === "2" ? (activeTournament.groupEText_w2 || "") : week === "3" ? (activeTournament.groupEText_w3 || "") : (activeTournament.groupEText || "");
-
-    const allTeams = [
-      ...currentA.split("\n"),
-      ...currentB.split("\n"),
-      ...currentC.split("\n"),
-      ...currentD.split("\n"),
-      ...currentE.split("\n"),
-    ].map((team) => team.trim()).filter(Boolean);
-
-    const uniqueTeams = Array.from(new Set(allTeams));
-    while (uniqueTeams.length < 20) {
-      uniqueTeams.push(`Tim ${uniqueTeams.length + 1}`);
-    }
-
-    for (let index = uniqueTeams.length - 1; index > 0; index -= 1) {
-      const randomIndex = Math.floor(Math.random() * (index + 1));
-      [uniqueTeams[index], uniqueTeams[randomIndex]] = [uniqueTeams[randomIndex], uniqueTeams[index]];
-    }
-
-    const suffix = week === "1" ? "" : `_w${week}`;
-    updateActiveTournament({
-      [`groupAText${suffix}`]: uniqueTeams.slice(0, 4).join("\n"),
-      [`groupBText${suffix}`]: uniqueTeams.slice(4, 8).join("\n"),
-      [`groupCText${suffix}`]: uniqueTeams.slice(8, 12).join("\n"),
-      [`groupDText${suffix}`]: uniqueTeams.slice(12, 16).join("\n"),
-      [`groupEText${suffix}`]: uniqueTeams.slice(16, 20).join("\n"),
-      activeMatchup: "ABCD",
-    });
-    setSuccessMsg(`Rotasi mingguan berhasil dibuat untuk Week ${week}: 4 tim per grup.`);
-    setTimeout(() => setSuccessMsg(""), 3000);
-  };
-
   // Auto-populate 16 teams to standings on change of tournament settings (only if not editing existing match)
   React.useEffect(() => {
     if (!editingMatch && activeTournament) {
@@ -873,14 +641,6 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
     setTouchOverIndex(null);
   };
 
-  const handleProvideTeams = (count: number) => {
-    const newTeams: Team[] = Array.from({ length: count }, (_, idx) => {
-      const placement = idx + 1;
-      return createEmptyTeam("", placement);
-    });
-    setTeams(newTeams);
-  };
-
   const prevEditingMatchRef = React.useRef<Match | null>(null);
 
   // Handle editing prefill
@@ -937,16 +697,6 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
 
   const handleMetaChange = (field: string, value: string) => {
     setMeta(prev => ({ ...prev, [field]: value }));
-  };
-
-  const handleAddTeam = () => {
-    const nextPlacement = Math.min(16, teams.length + 1);
-    setTeams(prev => [...prev, createEmptyTeam("", nextPlacement)]);
-  };
-
-  const handleRemoveTeam = (index: number) => {
-    if (teams.length <= 1) return;
-    setTeams(prev => prev.filter((_, idx) => idx !== index));
   };
 
   const handleTeamChange = (teamIdx: number, field: keyof Team, value: any) => {

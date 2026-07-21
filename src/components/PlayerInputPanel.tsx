@@ -2,8 +2,8 @@ import React, { useState, useMemo, useEffect } from "react";
 import { Match, Team, Player } from "../types";
 import { RosterPlayer } from "./RosterManager";
 import { 
-  Users, Save, RefreshCw, Layers, CheckCircle, 
-  Swords, Plus, Trash2, Calendar, Award, Info
+  Users, Save, RefreshCw, Layers, CheckCircle,
+  Plus, Trash2
 } from "lucide-react";
 
 interface PlayerInputPanelProps {
@@ -11,9 +11,6 @@ interface PlayerInputPanelProps {
   roster: RosterPlayer[];
   onSaveMatch: (match: Match) => Promise<void>;
   isDarkMode: boolean;
-  verifyActionPassword: (password: string) => Promise<boolean>;
-  actionPasswordVerified: boolean;
-  setActionPasswordVerified: (verified: boolean) => void;
   tournaments?: any[];
 }
 

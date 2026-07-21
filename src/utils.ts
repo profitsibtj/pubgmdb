@@ -1,8 +1,3 @@
-export const PUBGM_WEAPONS = [
-  "M416", "M762", "SCAR-L", "AKM", "AWM", "Micro UZI", "UMP45", "AMR", "M24", "Mini14", 
-  "DP-28", "SLR", "DBS", "AUG", "FAMAS", "Groza", "MK14", "S12K", "Thompson SMG", "Vector", "SKS"
-].sort();
-
 export const calculatePlacementPoints = (placement: number): number => {
   const p = Number(placement) || 0;
   if (p === 1) return 10;
