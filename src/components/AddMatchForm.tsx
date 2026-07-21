@@ -1,8 +1,8 @@
 import React, { useState } from "react";
 import { Match, Team, Player } from "../types";
-import { PUBGM_WEAPONS, parsePUBGMSpreadsheet, calculatePlacementPoints } from "../utils";
-import { 
-  Plus, Trash2, FileSpreadsheet, RefreshCw, AlertTriangle, Save, Info, GripVertical, Layers,
+import { PUBGM_WEAPONS, calculatePlacementPoints } from "../utils";
+import {
+  Plus, Trash2, RefreshCw, AlertTriangle, Save, GripVertical, Layers,
   Upload, X, Image, Settings
 } from "lucide-react";
 
@@ -27,13 +27,9 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
   tournaments: passedTournaments,
   onUpdateTournaments
 }) => {
-  const [entryMode, setEntryMode] = useState<"manual" | "paste">("manual");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
-
-  // Paste Mode State
-  const [pasteText, setPasteText] = useState("");
 
   const getTodayDateString = () => {
     const today = new Date();
@@ -778,9 +774,59 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
     setTeams(newTeams);
   };
 
+  // Update team names/lineup from current lobby settings while keeping
+  // whatever kills, placement order, and player data have already been entered.
+  const handleUpdateTeamsFromLobby = () => {
+    if (!activeTournament) return;
+    const teamNames = getTeamsFromActiveTournament(
+      activeTournament,
+      activeTournament.format,
+      activeTournament.activeMatchup,
+      activeTournament.activeGroup || "A"
+    );
+
+    setTeams(prev => teamNames.map((name, idx) => {
+      const existing = prev[idx];
+      if (existing) {
+        return { ...existing, name };
+      }
+      const placement = idx + 1;
+      return createEmptyTeam(name, placement);
+    }));
+
+    setSuccessMsg("Tim berhasil diupdate! Kills & data pemain yang sudah diisi tetap tersimpan.");
+    setTimeout(() => setSuccessMsg(""), 2500);
+  };
+
 
   // Drag and Drop State
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
+  const [touchOverIndex, setTouchOverIndex] = useState<number | null>(null);
+
+  const reorderTeams = (fromIndex: number, toIndex: number) => {
+    if (fromIndex === toIndex) return;
+    setTeams(prev => {
+      const updated = [...prev];
+      const draggedItem = updated[fromIndex];
+      updated.splice(fromIndex, 1);
+      updated.splice(toIndex, 0, draggedItem);
+
+      // Auto-update placements based on new index/order
+      return updated.map((t, idx) => {
+        const placement = idx + 1;
+        const elims = Number(t.eliminationPoints) || 0;
+        const placementPoints = calculatePlacementPoints(placement);
+        return {
+          ...t,
+          placement,
+          placementPoints,
+          totalPoints: placementPoints + elims,
+          wwcd: placement === 1,
+          players: t.players || []
+        };
+      });
+    });
+  };
 
   const handleDragStart = (e: React.DragEvent, index: number) => {
     setDraggedIndex(index);
@@ -794,29 +840,37 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
   const handleDrop = (e: React.DragEvent, index: number) => {
     e.preventDefault();
     if (draggedIndex === null || draggedIndex === index) return;
-    
-    const updated = [...teams];
-    const draggedItem = updated[draggedIndex];
-    updated.splice(draggedIndex, 1);
-    updated.splice(index, 0, draggedItem);
-    
-    // Auto-update placements based on new index/order
-    const finalTeams = updated.map((t, idx) => {
-      const placement = idx + 1;
-      const elims = Number(t.eliminationPoints) || 0;
-      const placementPoints = calculatePlacementPoints(placement);
-      return {
-        ...t,
-        placement,
-        placementPoints,
-        totalPoints: placementPoints + elims,
-        wwcd: placement === 1,
-        players: []
-      };
-    });
-    
-    setTeams(finalTeams);
+    reorderTeams(draggedIndex, index);
     setDraggedIndex(null);
+  };
+
+  // Touch (mobile) drag-and-drop support — native HTML5 DnD does not fire on touch devices,
+  // so the grip handle is reordered manually by tracking the row under the finger.
+  const handleGripTouchStart = (e: React.TouchEvent, index: number) => {
+    setDraggedIndex(index);
+    setTouchOverIndex(index);
+  };
+
+  const handleGripTouchMove = (e: React.TouchEvent) => {
+    if (draggedIndex === null) return;
+    const touch = e.touches[0];
+    if (!touch) return;
+    const el = document.elementFromPoint(touch.clientX, touch.clientY);
+    const row = el?.closest("tr[data-team-index]") as HTMLElement | null;
+    if (row) {
+      const overIdx = Number(row.dataset.teamIndex);
+      if (!Number.isNaN(overIdx)) {
+        setTouchOverIndex(overIdx);
+      }
+    }
+  };
+
+  const handleGripTouchEnd = () => {
+    if (draggedIndex !== null && touchOverIndex !== null) {
+      reorderTeams(draggedIndex, touchOverIndex);
+    }
+    setDraggedIndex(null);
+    setTouchOverIndex(null);
   };
 
   const handleProvideTeams = (count: number) => {
@@ -935,55 +989,40 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
     setIsSubmitting(true);
 
     try {
-      if (entryMode === "paste") {
-        const parsed = parsePUBGMSpreadsheet(pasteText, meta.league);
-        if (parsed.length === 0) {
-          throw new Error("Gagal mengurai. Tidak ada match valid yang ditemukan.");
-        }
-        
-        // Save all parsed matches
-        for (const match of parsed) {
-          await onSave(match);
-        }
-        setSuccessMsg(`Berhasil mengimpor ${parsed.length} match dari spreadsheet!`);
-        setPasteText("");
-        setTimeout(() => onClose(), 1500);
-      } else {
-        // Validate manual mode
-        if (teams.some(t => !t.name.trim())) {
-          throw new Error("Semua nama tim harus diisi.");
-        }
-
-        // Auto-calculate final values for each team
-        const processedTeams = teams.map(t => {
-          const eliminationPoints = Number(t.eliminationPoints) || 0;
-          const placementPoints = calculatePlacementPoints(t.placement);
-          return {
-            ...t,
-            eliminationPoints,
-            totalPoints: placementPoints + eliminationPoints,
-            wwcd: t.placement === 1,
-            players: t.players || []
-          };
-        });
-
-        const newMatch: Match = {
-          id: editingMatch?.id,
-          date: meta.date,
-          matchCode: meta.matchCode.trim(),
-          league: meta.league.trim(),
-          totalGame: meta.totalGame.trim(),
-          gameNo: meta.gameNo.trim(),
-          map: meta.map,
-          patch: "", // Removed as requested
-          liveLink: meta.liveLink.trim(),
-          teams: processedTeams.sort((a, b) => a.placement - b.placement)
-        };
-
-        await onSave(newMatch);
-        setSuccessMsg("Berhasil menyimpan match secara manual!");
-        setTimeout(() => onClose(), 1200);
+      // Validate manual mode
+      if (teams.some(t => !t.name.trim())) {
+        throw new Error("Semua nama tim harus diisi.");
       }
+
+      // Auto-calculate final values for each team
+      const processedTeams = teams.map(t => {
+        const eliminationPoints = Number(t.eliminationPoints) || 0;
+        const placementPoints = calculatePlacementPoints(t.placement);
+        return {
+          ...t,
+          eliminationPoints,
+          totalPoints: placementPoints + eliminationPoints,
+          wwcd: t.placement === 1,
+          players: t.players || []
+        };
+      });
+
+      const newMatch: Match = {
+        id: editingMatch?.id,
+        date: meta.date,
+        matchCode: meta.matchCode.trim(),
+        league: meta.league.trim(),
+        totalGame: meta.totalGame.trim(),
+        gameNo: meta.gameNo.trim(),
+        map: meta.map,
+        patch: "", // Removed as requested
+        liveLink: meta.liveLink.trim(),
+        teams: processedTeams.sort((a, b) => a.placement - b.placement)
+      };
+
+      await onSave(newMatch);
+      setSuccessMsg("Berhasil menyimpan match secara manual!");
+      setTimeout(() => onClose(), 1200);
     } catch (err: any) {
       console.error(err);
       setErrorMsg(err.message || "Terjadi kesalahan saat memproses data.");
@@ -996,35 +1035,8 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
     <div className={`p-6 rounded-2xl shadow-xl transition-all ${isDarkMode ? "bg-slate-900/50" : "bg-white border border-slate-200"}`}>
       <div className="border-b pb-4 mb-4 border-slate-800">
         <h2 className={`text-lg font-bold font-display uppercase tracking-tight ${isDarkMode ? "text-slate-100" : "text-slate-900"}`}>
-          {editingMatch ? "EDIT DATA MATCH RECORD" : entryMode === "paste" ? "IMPORT MATCH LOG" : "TAMBAH DATA MATCH BARU"}
+          {editingMatch ? "EDIT DATA MATCH RECORD" : "TAMBAH DATA MATCH BARU"}
         </h2>
-      </div>
-
-      {/* Tabs for Entry Mode */}
-      <div className="flex gap-2 mb-6 border-b pb-3 border-slate-850">
-        <button
-          type="button"
-          onClick={() => { setEntryMode("manual"); setErrorMsg(""); }}
-          className={`flex-1 sm:flex-none px-4 py-2 text-xs font-semibold font-mono rounded-xl transition-all cursor-pointer border ${
-            entryMode === "manual"
-              ? "bg-amber-500 hover:bg-amber-400 text-slate-950 border-amber-500 font-extrabold"
-              : isDarkMode ? "bg-slate-950 hover:bg-slate-900 text-slate-400 border-slate-800" : "bg-slate-50 hover:bg-slate-100 text-slate-600 border-slate-200"
-          }`}
-        >
-          Manual Entry Mode
-        </button>
-        <button
-          type="button"
-          onClick={() => { setEntryMode("paste"); setErrorMsg(""); }}
-          className={`flex-1 sm:flex-none px-4 py-2 text-xs font-semibold font-mono rounded-xl transition-all cursor-pointer border flex items-center justify-center gap-1.5 ${
-            entryMode === "paste"
-              ? "bg-amber-500 hover:bg-amber-400 text-slate-950 border-amber-500 font-extrabold"
-              : isDarkMode ? "bg-slate-950 hover:bg-slate-900 text-slate-400 border-slate-800" : "bg-slate-50 hover:bg-slate-100 text-slate-600 border-slate-200"
-          }`}
-        >
-          <FileSpreadsheet className="w-4 h-4 shrink-0" />
-          Import Spreadsheet
-        </button>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
@@ -1114,36 +1126,8 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
           </div>
         </div>
 
-        {/* ENTRY MODES RENDERING */}
-        {entryMode === "paste" ? (
-          <div className="space-y-4">
-            <div className={`p-4 rounded-xl border text-xs leading-relaxed space-y-2 ${isDarkMode ? "bg-slate-950/60 border-slate-850 text-slate-300" : "bg-slate-50 border-slate-200 text-slate-700"}`}>
-              <div className="flex items-center gap-1.5 font-bold font-mono text-amber-500 uppercase text-[10px]">
-                <Info className="w-4 h-4 shrink-0" />
-                <span>Spreadsheet Format Guidelines</span>
-              </div>
-              <p>Anda dapat menempelkan (Paste) data langsung dari excel atau Google Sheets. Urutan kolom yang diharapkan:</p>
-              <code className="block p-2 bg-slate-950 border border-slate-800 text-teal-400 rounded-lg text-[10px] font-mono overflow-x-auto whitespace-nowrap">
-                Tanggal | Kode_Match | Liga | Game_No | Map | Link_Stream | Nama_Tim | Posisi/Placement | Elims
-              </code>
-              <p className="text-[10px] text-slate-500 italic mt-1 font-mono">Note: Kosongkan sel untuk baris yang sama guna mewarisi parameter metadata atau tim dari baris sebelumnya secara otomatis.</p>
-            </div>
-
-            <div className="space-y-1">
-              <label className="text-[10px] font-mono font-bold text-slate-500 uppercase">TEMPELKAN BARIS SPREADSHEET DI SINI:</label>
-              <textarea
-                value={pasteText}
-                onChange={(e) => setPasteText(e.target.value)}
-                placeholder="Salin baris-baris data dari spreadsheet Anda lalu paste di sini..."
-                rows={10}
-                className={`w-full p-4 rounded-xl text-xs font-mono border focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 ${isDarkMode ? "bg-slate-950 border-slate-800 text-slate-100" : "bg-white border-slate-300 text-slate-900"}`}
-                required
-              />
-            </div>
-          </div>
-        ) : (
-          /* MANUAL ENTRY LAYOUT */
-          <div className="space-y-6 animate-fadeIn">
+        {/* MANUAL ENTRY LAYOUT */}
+        <div className="space-y-6 animate-fadeIn">
             
             {/* COLLAPSIBLE ROSTER/GROUP REGISTER SETTINGS */}
             <div className={`p-5 rounded-2xl transition-all ${isDarkMode ? "bg-[#0b0f19]/40" : "bg-slate-50 border border-slate-200"}`}>
@@ -1556,9 +1540,17 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
               <div className="flex gap-2">
                 <button
                   type="button"
+                  onClick={() => handleUpdateTeamsFromLobby()}
+                  className="px-3 py-1.5 bg-teal-500/10 hover:bg-teal-500/20 text-teal-400 rounded-lg border border-teal-500/20 text-[10px] font-bold font-mono transition-all cursor-pointer"
+                  title="Update nama tim dari pengaturan lobby, tanpa menghapus kills/urutan yang sudah diisi"
+                >
+                  Update Team
+                </button>
+                <button
+                  type="button"
                   onClick={() => applyFormatAndTeamsToLobby()}
                   className="px-3 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 rounded-lg border border-amber-500/20 text-[10px] font-bold font-mono transition-all cursor-pointer"
-                  title="Sinkronisasi ulang tim berdasarkan pilihan turnamen saat ini"
+                  title="Reset penuh: urutan tim & kills akan dikembalikan ke awal"
                 >
                   Reset Lobby
                 </button>
@@ -1590,23 +1582,34 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
                           const placementPoints = calculatePlacementPoints(team.placement);
                           const elims = Number(team.eliminationPoints) || 0;
                           const isDraggingThis = draggedIndex === tIdx;
+                          const isTouchDropTarget = draggedIndex !== null && draggedIndex !== tIdx && touchOverIndex === tIdx;
 
                           return (
-                            <tr 
-                              key={tIdx} 
+                            <tr
+                              key={tIdx}
+                              data-team-index={tIdx}
                               draggable
                               onDragStart={(e) => handleDragStart(e, tIdx)}
                               onDragOver={(e) => handleDragOver(e, tIdx)}
                               onDrop={(e) => handleDrop(e, tIdx)}
                               className={`transition-all ${
-                                isDraggingThis 
-                                  ? "bg-amber-500/10 opacity-40 border-y-2 border-dashed border-amber-500" 
+                                isDraggingThis
+                                  ? "bg-amber-500/10 opacity-40 border-y-2 border-dashed border-amber-500"
+                                  : isTouchDropTarget
+                                  ? "bg-amber-500/10 border-y-2 border-dashed border-amber-500"
                                   : isDarkMode ? "hover:bg-slate-900/40" : "hover:bg-slate-50/40"
                               }`}
                             >
-                              {/* Grip Handle for Drag and Drop */}
+                              {/* Grip Handle for Drag and Drop (mouse: HTML5 DnD, touch: manual tracking) */}
                               <td className="py-1.5 px-1 text-center" onClick={(e) => e.stopPropagation()}>
-                                <div className="flex items-center justify-center cursor-grab active:cursor-grabbing text-slate-500 hover:text-amber-500 transition-colors">
+                                <div
+                                  className="flex items-center justify-center cursor-grab active:cursor-grabbing text-slate-500 hover:text-amber-500 transition-colors touch-none"
+                                  style={{ touchAction: "none" }}
+                                  onTouchStart={(e) => handleGripTouchStart(e, tIdx)}
+                                  onTouchMove={handleGripTouchMove}
+                                  onTouchEnd={handleGripTouchEnd}
+                                  onTouchCancel={handleGripTouchEnd}
+                                >
                                   <GripVertical className="w-3 h-3" />
                                 </div>
                               </td>
@@ -1659,7 +1662,6 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
               );
             })()}
           </div>
-        )}
 
         {/* Action Error / Success displays */}
         {errorMsg && (
