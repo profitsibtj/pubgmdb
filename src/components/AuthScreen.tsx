@@ -123,11 +123,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
 
       {/* LANDING PAGE CONTENT BODY */}
       <main className="flex-1 flex flex-col items-center justify-center px-6 py-12 md:py-24 text-center relative z-10 max-w-4xl mx-auto">
-        {/* Subtle decorative tag */}
-        <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/10 text-amber-500 border border-amber-500/10 font-mono font-black text-[9px] tracking-widest uppercase mb-6 animate-pulse">
-          <span>SECURE SYSTEM</span>
-        </div>
-
         {/* HERO TYPOGRAPHY */}
         <h1 className="flex flex-col gap-2 md:gap-4 select-none">
           <span className={`text-4xl md:text-6xl font-black uppercase tracking-tight ${
