@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from "react";
 import { Match, Team } from "../types";
-import { 
-  ChevronDown, ChevronUp, Search, Calendar, MapPin, Trash2, Edit2, Play, RefreshCw, Star, ShieldAlert, Lock, Unlock
+import {
+  ChevronDown, ChevronUp, Search, Calendar, MapPin, Trash2, Edit2, Play, RefreshCw, Star
 } from "lucide-react";
 
 interface MatchExplorerProps {
@@ -10,9 +10,7 @@ interface MatchExplorerProps {
   onDeleteMatch: (id: string) => Promise<void>;
   onEditMatch: (match: Match) => void;
   isDarkMode: boolean;
-  verifyActionPassword: (password: string) => Promise<boolean>;
   actionPasswordVerified: boolean;
-  setActionPasswordVerified: (verified: boolean) => void;
 }
 
 export const MatchExplorer: React.FC<MatchExplorerProps> = ({
@@ -21,24 +19,12 @@ export const MatchExplorer: React.FC<MatchExplorerProps> = ({
   onDeleteMatch,
   onEditMatch,
   isDarkMode,
-  verifyActionPassword,
-  actionPasswordVerified,
-  setActionPasswordVerified
+  actionPasswordVerified
 }) => {
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedMap, setSelectedMap] = useState("ALL");
   const [selectedLeague, setSelectedLeague] = useState("ALL");
   const [expandedMatch, setExpandedMatch] = useState<string | null>(null);
-
-  // Verification modal state
-  const [passModal, setPassModal] = useState({
-    isOpen: false,
-    password: "",
-    error: "",
-    actionType: "" as "delete" | "edit",
-    targetId: "",
-    matchToEdit: null as Match | null
-  });
 
   // Custom delete confirmation modal state
   const [deleteConfirmModal, setDeleteConfirmModal] = useState<{
@@ -80,18 +66,9 @@ export const MatchExplorer: React.FC<MatchExplorerProps> = ({
     setExpandedMatch(prev => (prev === id ? null : id));
   };
 
+  // Edit/Delete are only rendered at all when actionPasswordVerified is true (see below),
+  // so these handlers can act directly without a per-click password gate.
   const handleDeleteClick = (id: string) => {
-    if (!actionPasswordVerified) {
-      setPassModal({
-        isOpen: true,
-        password: "",
-        error: "",
-        actionType: "delete",
-        targetId: id,
-        matchToEdit: null
-      });
-      return;
-    }
     setDeleteConfirmModal({
       isOpen: true,
       targetId: id
@@ -99,42 +76,7 @@ export const MatchExplorer: React.FC<MatchExplorerProps> = ({
   };
 
   const handleEditClick = (match: Match) => {
-    if (!actionPasswordVerified) {
-      setPassModal({
-        isOpen: true,
-        password: "",
-        error: "",
-        actionType: "edit",
-        targetId: match.id || "",
-        matchToEdit: match
-      });
-      return;
-    }
     onEditMatch(match);
-  };
-
-  const handleVerifyPass = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const isOk = await verifyActionPassword(passModal.password);
-    if (isOk) {
-      setActionPasswordVerified(true);
-      const action = passModal.actionType;
-      const targetId = passModal.targetId;
-      const matchToEdit = passModal.matchToEdit;
-
-      setPassModal({ isOpen: false, password: "", error: "", actionType: "delete", targetId: "", matchToEdit: null });
-
-      if (action === "delete" && targetId) {
-        setDeleteConfirmModal({
-          isOpen: true,
-          targetId: targetId
-        });
-      } else if (action === "edit" && matchToEdit) {
-        onEditMatch(matchToEdit);
-      }
-    } else {
-      setPassModal(prev => ({ ...prev, error: "Password aksi salah! Akses ditolak." }));
-    }
   };
 
   return (
@@ -288,30 +230,34 @@ export const MatchExplorer: React.FC<MatchExplorerProps> = ({
                           <Play className="w-3.5 h-3.5 shrink-0 text-amber-500" />
                         </a>
                       )}
-                      <button
-                        type="button"
-                        onClick={(e) => { e.stopPropagation(); handleEditClick(match); }}
-                        className={`p-2 rounded-xl border transition-all ${
-                          isDarkMode 
-                            ? "bg-slate-950 hover:bg-slate-850 text-slate-300 border-slate-800" 
-                            : "bg-white hover:bg-slate-100 text-slate-600 border-slate-200"
-                        }`}
-                        title="Edit match log"
-                      >
-                        <Edit2 className="w-3.5 h-3.5 shrink-0 text-amber-500" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={(e) => { e.stopPropagation(); handleDeleteClick(matchId); }}
-                        className={`p-2 rounded-xl border transition-all ${
-                          isDarkMode 
-                            ? "bg-red-950/20 hover:bg-red-900/30 text-red-400 border-red-900/30" 
-                            : "bg-red-50 hover:bg-red-100 text-red-600 border-red-200"
-                        }`}
-                        title="Delete match log"
-                      >
-                        <Trash2 className="w-3.5 h-3.5 shrink-0" />
-                      </button>
+                      {actionPasswordVerified && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); handleEditClick(match); }}
+                            className={`p-2 rounded-xl border transition-all ${
+                              isDarkMode
+                                ? "bg-slate-950 hover:bg-slate-850 text-slate-300 border-slate-800"
+                                : "bg-white hover:bg-slate-100 text-slate-600 border-slate-200"
+                            }`}
+                            title="Edit match log"
+                          >
+                            <Edit2 className="w-3.5 h-3.5 shrink-0 text-amber-500" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); handleDeleteClick(matchId); }}
+                            className={`p-2 rounded-xl border transition-all ${
+                              isDarkMode
+                                ? "bg-red-950/20 hover:bg-red-900/30 text-red-400 border-red-900/30"
+                                : "bg-red-50 hover:bg-red-100 text-red-600 border-red-200"
+                            }`}
+                            title="Delete match log"
+                          >
+                            <Trash2 className="w-3.5 h-3.5 shrink-0" />
+                          </button>
+                        </>
+                      )}
                     </div>
 
                     <div className="p-1 rounded-lg">
@@ -407,63 +353,6 @@ export const MatchExplorer: React.FC<MatchExplorerProps> = ({
               </div>
             );
           })}
-        </div>
-      )}
-
-      {/* ADMIN ACTION PASSCODE MODAL */}
-      {passModal.isOpen && (
-        <div className={`fixed inset-0 backdrop-blur-sm flex items-center justify-center z-[100] p-4 transition-colors duration-200 ${isDarkMode ? "bg-slate-950/80" : "bg-slate-900/40"}`}>
-          <div className={`w-full max-w-sm border rounded-2xl shadow-2xl overflow-hidden animate-fadeIn transition-colors duration-200 ${isDarkMode ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200 text-slate-800"}`}>
-            <div className="bg-gradient-to-r from-amber-600 to-amber-500 p-5 text-slate-950 flex flex-col items-center">
-              <div className={`p-2.5 rounded-full mb-2 ${isDarkMode ? "bg-slate-950 text-amber-400" : "bg-white/40 text-slate-950"}`}>
-                <Lock className="w-5 h-5" />
-              </div>
-              <h3 className="text-sm font-bold tracking-tight text-center uppercase">
-                Verifikasi Hak Akses
-              </h3>
-              <p className="text-[9px] tracking-wider mt-0.5 opacity-90">
-                MASUKKAN PASSWORD KHUSUS ADMIN
-              </p>
-            </div>
-
-            <form onSubmit={handleVerifyPass} className="p-6 space-y-4 text-xs">
-              <div className="space-y-2">
-                <label className={`block font-semibold ${isDarkMode ? "text-slate-400" : "text-slate-600"}`}>PASSWORD AKSI (RESTRICTED ACCESS):</label>
-                <input
-                  type="password"
-                  value={passModal.password}
-                  onChange={(e) => setPassModal(prev => ({ ...prev, password: e.target.value }))}
-                  placeholder="Masukkan password khusus"
-                  className={`w-full rounded-lg py-2 px-3 text-center text-sm tracking-widest focus:outline-none focus:ring-1 focus:ring-amber-500 border ${isDarkMode ? "bg-slate-950 border-slate-800 text-slate-200" : "bg-slate-50 border-slate-200 text-slate-900"}`}
-                  autoFocus
-                />
-              </div>
-
-              {passModal.error && (
-                <div className="bg-red-950/40 border border-red-900/50 text-red-400 p-2.5 rounded-lg flex items-center gap-2">
-                  <ShieldAlert className="w-4 h-4 shrink-0" />
-                  <span>{passModal.error}</span>
-                </div>
-              )}
-
-              <div className="flex gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setPassModal({ isOpen: false, password: "", error: "", actionType: "delete", targetId: "", matchToEdit: null })}
-                  className={`flex-1 border rounded-lg py-2 font-bold cursor-pointer transition-all text-center ${isDarkMode ? "bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 border-slate-700" : "bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-800 border-slate-200"}`}
-                >
-                  Batal
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 bg-amber-500 hover:bg-amber-400 active:bg-amber-600 text-slate-950 rounded-lg py-2 font-bold cursor-pointer transition-all flex items-center justify-center gap-1 shadow-lg"
-                >
-                  <Unlock className="w-3.5 h-3.5" />
-                  <span>Verifikasi</span>
-                </button>
-              </div>
-            </form>
-          </div>
         </div>
       )}
 

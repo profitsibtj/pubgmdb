@@ -250,19 +250,7 @@ export const PlayerInputPanel: React.FC<PlayerInputPanelProps> = ({
 
   // Add Player row (starts empty and defaults to 0)
   const handleAddPlayerRow = () => {
-    const newPlayer: DailyPlayer = {
-      name: "",
-      team: "",
-      stats: {} as Record<string, any>
-    };
-
-    columns.forEach(col => {
-      if (col.key !== "name" && col.key !== "team") {
-        newPlayer.stats[col.key] = 0;
-      }
-    });
-
-    setFlatPlayers(prev => [...prev, newPlayer]);
+    setFlatPlayers(prev => [...prev, makeBlankPlayerRow()]);
   };
 
   // Delete Player row (confirm-free to avoid iframe blocks)
@@ -292,6 +280,67 @@ export const PlayerInputPanel: React.FC<PlayerInputPanelProps> = ({
           [colKey]: value
         }
       };
+      return next;
+    });
+  };
+
+  const makeBlankPlayerRow = (): DailyPlayer => {
+    const blank: DailyPlayer = { name: "", team: "", stats: {} };
+    columns.forEach(col => {
+      if (col.key !== "name" && col.key !== "team") blank.stats[col.key] = 0;
+    });
+    return blank;
+  };
+
+  // Paste rows/columns copied from a spreadsheet (Excel/Google Sheets) directly into the grid,
+  // starting at the cell the user pasted into. Rows are tab/newline separated like any
+  // spreadsheet clipboard payload. Single-cell pastes are left to the browser's default behavior.
+  const handlePasteGrid = (e: React.ClipboardEvent, startRowIdx: number, startColKey: string) => {
+    const text = e.clipboardData.getData("text/plain");
+    if (!text) return;
+
+    const rows = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
+    if (rows.length > 1 && rows[rows.length - 1] === "") rows.pop();
+    const grid = rows.map(r => r.split("\t"));
+
+    if (grid.length === 1 && grid[0].length === 1) {
+      return; // Single value - let the input handle the paste natively
+    }
+
+    e.preventDefault();
+
+    const startColIdx = columns.findIndex(col => col.key === startColKey);
+    if (startColIdx === -1) return;
+
+    setFlatPlayers(prev => {
+      const next = [...prev];
+
+      grid.forEach((rowCells, rOffset) => {
+        const targetRowIdx = startRowIdx + rOffset;
+        while (next.length <= targetRowIdx) {
+          next.push(makeBlankPlayerRow());
+        }
+
+        const targetRow = { ...next[targetRowIdx], stats: { ...next[targetRowIdx].stats } };
+
+        rowCells.forEach((rawValue, cOffset) => {
+          const targetColIdx = startColIdx + cOffset;
+          if (targetColIdx >= columns.length) return;
+          const targetCol = columns[targetColIdx];
+          const value = rawValue.trim();
+
+          if (targetCol.key === "name") {
+            targetRow.name = value;
+          } else if (targetCol.key === "team") {
+            targetRow.team = value;
+          } else {
+            targetRow.stats[targetCol.key] = Number(value) || 0;
+          }
+        });
+
+        next[targetRowIdx] = targetRow;
+      });
+
       return next;
     });
   };
@@ -478,10 +527,15 @@ export const PlayerInputPanel: React.FC<PlayerInputPanelProps> = ({
             
             {/* Spreadsheet Header Controls */}
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-              <span className="text-xs font-extrabold uppercase text-amber-500 flex items-center gap-1.5">
-                <Users className="w-4 h-4" />
-                Spreadsheet Input Player ({flatPlayers.length} Pemain)
-              </span>
+              <div>
+                <span className="text-xs font-extrabold uppercase text-amber-500 flex items-center gap-1.5">
+                  <Users className="w-4 h-4" />
+                  Spreadsheet Input Player ({flatPlayers.length} Pemain)
+                </span>
+                <p className="text-[9px] text-slate-500 italic mt-1 normal-case">
+                  Tip: bisa copy beberapa sel/baris langsung dari Excel atau Google Sheets, lalu paste di sel manapun pada tabel ini.
+                </p>
+              </div>
 
               <div className="flex flex-wrap items-center gap-2">
                 {showAddColInput ? (
@@ -600,6 +654,7 @@ export const PlayerInputPanel: React.FC<PlayerInputPanelProps> = ({
                                   type="text"
                                   value={p.name}
                                   onChange={(e) => handleUpdatePlayerCell(idx, "name", e.target.value)}
+                                  onPaste={(e) => handlePasteGrid(e, idx, "name")}
                                   placeholder="Player..."
                                   className={`w-full rounded p-1 text-xs font-bold border focus:outline-none focus:ring-1 focus:ring-amber-500 ${
                                     isDarkMode ? "bg-slate-900 border-slate-800 text-white" : "bg-slate-50 border-slate-200 text-slate-900"
@@ -614,6 +669,7 @@ export const PlayerInputPanel: React.FC<PlayerInputPanelProps> = ({
                                   type="text"
                                   value={p.team}
                                   onChange={(e) => handleUpdatePlayerCell(idx, "team", e.target.value)}
+                                  onPaste={(e) => handlePasteGrid(e, idx, "team")}
                                   placeholder="Team..."
                                   className={`w-full rounded p-1 text-xs font-bold border focus:outline-none focus:ring-1 focus:ring-amber-500 ${
                                     isDarkMode ? "bg-slate-900 border-slate-800 text-teal-400" : "bg-slate-50 border-slate-200 text-teal-600"
@@ -628,6 +684,7 @@ export const PlayerInputPanel: React.FC<PlayerInputPanelProps> = ({
                                   type="number"
                                   value={p.stats[col.key] !== undefined ? p.stats[col.key] : 0}
                                   onChange={(e) => handleUpdatePlayerStatCell(idx, col.key, Number(e.target.value) || 0)}
+                                  onPaste={(e) => handlePasteGrid(e, idx, col.key)}
                                   className={`w-full rounded p-1 text-xs text-center font-semibold border focus:outline-none focus:ring-1 focus:ring-amber-500 ${
                                     isDarkMode ? "bg-slate-900 border-slate-800 text-slate-200" : "bg-slate-50 border-slate-200 text-slate-800"
                                   }`}

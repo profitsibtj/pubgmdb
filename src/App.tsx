@@ -873,9 +873,7 @@ export default function App() {
             onDeleteMatch={handleDeleteMatch}
             onEditMatch={handleTriggerEditMatch}
             isDarkMode={isDarkMode}
-            verifyActionPassword={verifyActionPassword}
             actionPasswordVerified={actionPasswordVerified}
-            setActionPasswordVerified={handleSetActionPasswordVerified}
           />
         )}
 
@@ -1008,8 +1006,6 @@ export default function App() {
                   onClose={() => { setEditingMatch(null); setActiveTab("matches"); }}
                   isDarkMode={isDarkMode}
                   editingMatch={null}
-                  matches={matches}
-                  roster={roster}
                   tournaments={tournaments}
                   onUpdateTournaments={handleUpdateTournaments}
                 />
@@ -1030,8 +1026,6 @@ export default function App() {
               onClose={() => setEditingMatch(null)}
               isDarkMode={isDarkMode}
               editingMatch={editingMatch}
-              matches={matches}
-              roster={roster}
               tournaments={tournaments}
               onUpdateTournaments={handleUpdateTournaments}
             />

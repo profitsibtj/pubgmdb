@@ -45,19 +45,6 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
     setSelectedTeam("ALL");
   }, [selectedLeague]);
 
-  // Manage Team Logos state persisted in localStorage
-  const [teamLogos] = useState<Record<string, string>>(() => {
-    const stored = localStorage.getItem("team_logos");
-    if (stored) {
-      try {
-        return JSON.parse(stored);
-      } catch (e) {
-        console.error("Failed to parse team logos", e);
-      }
-    }
-    return {};
-  });
-
   // Extract unique competitions list synced with tournament presets in input match log & matches
   const uniqueLeagues = useMemo(() => {
     const leaguesSet = new Set<string>();
@@ -500,21 +487,12 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
                           <td className="py-3 px-4 font-bold">
                             <span className="tracking-tight">{p.name}</span>
                           </td>
-                          {/* Team with Logo */}
+                          {/* Team name with initials badge */}
                           <td className="py-3 px-4 font-semibold text-slate-300">
                             <div className="flex items-center gap-2">
-                              {teamLogos[p.teamName] ? (
-                                <img 
-                                  src={teamLogos[p.teamName]} 
-                                  alt={p.teamName} 
-                                  className="w-6 h-6 rounded-full object-cover border border-slate-800/30 shrink-0" 
-                                  referrerPolicy="no-referrer" 
-                                />
-                              ) : (
-                                <div className="w-6 h-6 rounded-full bg-amber-500/10 text-amber-500 text-[10px] font-black border border-amber-500/20 flex items-center justify-center shrink-0 uppercase">
-                                  {p.teamName ? p.teamName.slice(0, 2) : "??"}
-                                </div>
-                              )}
+                              <div className="w-6 h-6 rounded-full bg-amber-500/10 text-amber-500 text-[10px] font-black border border-amber-500/20 flex items-center justify-center shrink-0 uppercase">
+                                {p.teamName ? p.teamName.slice(0, 2) : "??"}
+                              </div>
                               <span className="tracking-tight text-slate-300">{p.teamName || "-"}</span>
                             </div>
                           </td>
@@ -587,18 +565,9 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
                   </div>
 
                   <div className="flex items-center gap-3">
-                    {teamLogos[p.teamName] ? (
-                      <img 
-                        src={teamLogos[p.teamName]} 
-                        alt={p.teamName} 
-                        className="w-12 h-12 rounded-full object-cover border border-slate-800/30 shadow-inner shrink-0" 
-                        referrerPolicy="no-referrer" 
-                      />
-                    ) : (
-                      <div className="w-12 h-12 rounded-full bg-amber-500/10 text-amber-500 flex items-center justify-center border border-amber-500/20 shadow-inner shrink-0 font-bold font-mono text-lg uppercase">
-                        {p.name.substring(0, 2).toUpperCase()}
-                      </div>
-                    )}
+                    <div className="w-12 h-12 rounded-full bg-amber-500/10 text-amber-500 flex items-center justify-center border border-amber-500/20 shadow-inner shrink-0 font-bold font-mono text-lg uppercase">
+                      {p.name.substring(0, 2).toUpperCase()}
+                    </div>
                     <div>
                       <h3 className={`font-bold text-sm font-mono tracking-tight flex items-center gap-1.5 ${isDarkMode ? "text-slate-100" : "text-slate-900"}`}>
                         {p.name}

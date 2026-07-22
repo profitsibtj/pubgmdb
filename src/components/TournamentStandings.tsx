@@ -13,9 +13,28 @@ interface TournamentStandingsProps {
 export const TournamentStandings: React.FC<TournamentStandingsProps> = ({ matches, isDarkMode, tournaments }) => {
   const [selectedTournament, setSelectedTournament] = useState<string>("");
   const [selectedMapFilter, setSelectedMapFilter] = useState<string>("ALL");
+  const [selectedWeekFilter, setSelectedWeekFilter] = useState<string>("ALL");
   const [selectedDayFilter, setSelectedDayFilter] = useState<string>("ALL");
   const [teamSearchTerm, setTeamSearchTerm] = useState<string>("All");
   const [selectedTeamDetail, setSelectedTeamDetail] = useState<string | null>(null);
+
+  // Overall = regular-season standings (everything except Grand Final matches).
+  // Final = only matches explicitly tagged as Grand Final. Kept as two separate,
+  // non-overlapping views within the same league so a Final doesn't skew the overall table.
+  const [viewMode, setViewMode] = useState<"overall" | "final">("overall");
+
+  const matchesStageMatch = (match: Match): boolean => {
+    return viewMode === "final" ? !!match.isGrandFinal : !match.isGrandFinal;
+  };
+
+  // Helper to pull just the Week number out of a matchCode, e.g. "W2D3" -> "Week 2". Returns
+  // null when no week is encoded, so a "Filter Week" control can stay hidden entirely for
+  // tournaments/leagues that don't use a week structure.
+  const getMatchWeek = (match: Match): string | null => {
+    const code = (match.matchCode || "").toUpperCase();
+    const weekMatch = code.match(/W(\d+)/);
+    return weekMatch ? `Week ${weekMatch[1]}` : null;
+  };
 
   // Helper to build a unique Week+Day identifier for a match, e.g. matchCode "W2D3" -> "Week 2 - Day 3".
   // Matching on Day alone would collide across weeks (W1D1 and W2D1 both being "Day 1"), so week is
@@ -77,10 +96,32 @@ export const TournamentStandings: React.FC<TournamentStandingsProps> = ({ matche
     return ["ALL", ...unique];
   }, [matches, selectedTournament]);
 
-  // Extract unique days/dates for filtering inside tournament
+  // Extract unique weeks for filtering (only present when the league actually uses week-coded matchCodes)
+  const weeksList = useMemo(() => {
+    if (!selectedTournament) return [];
+    const tournamentMatches = matches.filter(m => !m.isDailyStats && m.league === selectedTournament && matchesStageMatch(m));
+    const unique = new Set<string>();
+    tournamentMatches.forEach(m => {
+      const w = getMatchWeek(m);
+      if (w) unique.add(w);
+    });
+    if (unique.size === 0) return [];
+    return ["ALL", ...Array.from(unique).sort((a, b) => {
+      const na = parseInt(a.replace(/\D/g, ""), 10);
+      const nb = parseInt(b.replace(/\D/g, ""), 10);
+      return na - nb;
+    })];
+  }, [matches, selectedTournament, viewMode]);
+
+  // Extract unique days/dates for filtering inside tournament, scoped to the selected week (if any)
   const daysList = useMemo(() => {
     if (!selectedTournament) return ["ALL"];
-    const tournamentMatches = matches.filter(m => !m.isDailyStats && m.league === selectedTournament);
+    const tournamentMatches = matches.filter(m =>
+      !m.isDailyStats &&
+      m.league === selectedTournament &&
+      matchesStageMatch(m) &&
+      (selectedWeekFilter === "ALL" || getMatchWeek(m) === selectedWeekFilter)
+    );
     const unique = new Set<string>();
     tournamentMatches.forEach(m => {
       const d = getMatchDay(m);
@@ -98,14 +139,21 @@ export const TournamentStandings: React.FC<TournamentStandingsProps> = ({ matche
       if (dayA !== dayB) return dayA - dayB;
       return a.localeCompare(b);
     })];
-  }, [matches, selectedTournament]);
+  }, [matches, selectedTournament, selectedWeekFilter, viewMode]);
 
-  // If tournament changes, reset map filter, day filter and selected team detail
+  // If tournament changes, reset all filters and selected team detail
   React.useEffect(() => {
     setSelectedMapFilter("ALL");
+    setSelectedWeekFilter("ALL");
     setSelectedDayFilter("ALL");
     setSelectedTeamDetail(null);
   }, [selectedTournament]);
+
+  // Switching between Overall/Final resets week+day filters since the available options differ per stage
+  React.useEffect(() => {
+    setSelectedWeekFilter("ALL");
+    setSelectedDayFilter("ALL");
+  }, [viewMode]);
 
   // Calculate Standings
   const standings = useMemo(() => {
@@ -114,8 +162,9 @@ export const TournamentStandings: React.FC<TournamentStandingsProps> = ({ matche
     const filteredMatches = matches.filter(m => {
       const matchLeague = m.league === selectedTournament;
       const matchMap = selectedMapFilter === "ALL" || m.map === selectedMapFilter;
+      const matchWeek = selectedWeekFilter === "ALL" || getMatchWeek(m) === selectedWeekFilter;
       const matchDay = selectedDayFilter === "ALL" || getMatchDay(m) === selectedDayFilter;
-      return matchLeague && matchMap && matchDay && !m.isDailyStats;
+      return matchLeague && matchMap && matchWeek && matchDay && matchesStageMatch(m) && !m.isDailyStats;
     });
 
     const teamMap: Record<string, {
@@ -223,7 +272,7 @@ export const TournamentStandings: React.FC<TournamentStandingsProps> = ({ matche
       // 5. Matches Played Ascending
       return a.matchesPlayed - b.matchesPlayed;
     });
-  }, [matches, selectedTournament, selectedMapFilter, selectedDayFilter, activeTiebreaker]);
+  }, [matches, selectedTournament, selectedMapFilter, selectedWeekFilter, selectedDayFilter, viewMode, activeTiebreaker]);
 
   // Filter standings by search term (if user searches for a specific team)
   const filteredStandings = useMemo(() => {
@@ -250,14 +299,14 @@ export const TournamentStandings: React.FC<TournamentStandingsProps> = ({ matche
           <div className={`p-5 rounded-3xl transition-all border ${
             isDarkMode ? "bg-slate-900/50 border-slate-850" : "bg-white border-slate-200 shadow-sm"
           }`}>
-            <div className="flex flex-col md:flex-row gap-4 items-start md:items-center justify-between mb-6 border-b border-slate-800/40 pb-4">
+            <div className="flex flex-col md:flex-row gap-4 items-start md:items-center justify-between mb-4 border-b border-slate-800/40 pb-4">
               <div className="flex items-center gap-2.5">
                 <div className="bg-amber-500 p-2 rounded-xl text-slate-950">
                   <Trophy className="w-5 h-5" />
                 </div>
                 <div>
                   <h3 className={`font-bold font-display text-base uppercase tracking-tight ${isDarkMode ? "text-slate-100" : "text-slate-900"}`}>
-                    Klasemen Turnamen Keseluruhan
+                    {viewMode === "final" ? "Klasemen Grand Final" : "Klasemen Overall Liga"}
                   </h3>
                 </div>
               </div>
@@ -283,9 +332,35 @@ export const TournamentStandings: React.FC<TournamentStandingsProps> = ({ matche
               </div>
             </div>
 
-            {/* Sub-Filters: Map, Day, Team Search */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
-              <div className="relative">
+            {/* Overall vs Grand Final toggle */}
+            <div className="flex gap-2 mb-4">
+              <button
+                type="button"
+                onClick={() => setViewMode("overall")}
+                className={`px-4 py-1.5 rounded-xl text-[10px] font-black font-mono uppercase tracking-wider transition-all cursor-pointer border ${
+                  viewMode === "overall"
+                    ? "bg-amber-500 text-slate-950 border-amber-500"
+                    : isDarkMode ? "bg-slate-950 text-slate-400 border-slate-800 hover:text-white" : "bg-white text-slate-600 border-slate-200 hover:text-slate-900"
+                }`}
+              >
+                Overall
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode("final")}
+                className={`px-4 py-1.5 rounded-xl text-[10px] font-black font-mono uppercase tracking-wider transition-all cursor-pointer border ${
+                  viewMode === "final"
+                    ? "bg-amber-500 text-slate-950 border-amber-500"
+                    : isDarkMode ? "bg-slate-950 text-slate-400 border-slate-800 hover:text-white" : "bg-white text-slate-600 border-slate-200 hover:text-slate-900"
+                }`}
+              >
+                Grand Final
+              </button>
+            </div>
+
+            {/* Sub-Filters: Map, Week, Day, Team Search */}
+            <div className="flex flex-wrap gap-3 mb-4">
+              <div className="relative flex-1 min-w-[180px]">
                 <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-500" />
                 <input
                   type="text"
@@ -298,12 +373,29 @@ export const TournamentStandings: React.FC<TournamentStandingsProps> = ({ matche
                 />
               </div>
 
+              {weeksList.length > 0 && (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-slate-500 text-[9px] font-bold uppercase shrink-0">Filter Week:</span>
+                  <select
+                    value={selectedWeekFilter}
+                    onChange={(e) => setSelectedWeekFilter(e.target.value)}
+                    className={`p-2 rounded-xl border font-bold cursor-pointer text-xs focus:ring-1 focus:ring-amber-500 outline-none ${
+                      isDarkMode ? "bg-slate-950 border-slate-850 text-white" : "bg-white border-slate-300 text-slate-900"
+                    }`}
+                  >
+                    {weeksList.map(w => (
+                      <option key={w} value={w}>{w === "ALL" ? "Semua Week (All)" : w}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
               <div className="flex items-center gap-1.5">
                 <span className="text-slate-500 text-[9px] font-bold uppercase shrink-0">Filter Day:</span>
                 <select
                   value={selectedDayFilter}
                   onChange={(e) => setSelectedDayFilter(e.target.value)}
-                  className={`p-2 rounded-xl border font-bold cursor-pointer text-xs w-full focus:ring-1 focus:ring-amber-500 outline-none ${
+                  className={`p-2 rounded-xl border font-bold cursor-pointer text-xs focus:ring-1 focus:ring-amber-500 outline-none ${
                     isDarkMode ? "bg-slate-950 border-slate-850 text-white" : "bg-white border-slate-300 text-slate-900"
                   }`}
                 >
@@ -318,7 +410,7 @@ export const TournamentStandings: React.FC<TournamentStandingsProps> = ({ matche
                 <select
                   value={selectedMapFilter}
                   onChange={(e) => setSelectedMapFilter(e.target.value)}
-                  className={`p-2 rounded-xl border font-bold cursor-pointer text-xs w-full focus:ring-1 focus:ring-amber-500 outline-none ${
+                  className={`p-2 rounded-xl border font-bold cursor-pointer text-xs focus:ring-1 focus:ring-amber-500 outline-none ${
                     isDarkMode ? "bg-slate-950 border-slate-850 text-white" : "bg-white border-slate-300 text-slate-900"
                   }`}
                 >
@@ -332,7 +424,7 @@ export const TournamentStandings: React.FC<TournamentStandingsProps> = ({ matche
             {/* Standings Table */}
             {filteredStandings.length === 0 ? (
               <div className={`text-center py-12 border border-dashed rounded-2xl text-slate-500 ${isDarkMode ? "border-slate-850 bg-slate-950/20" : "border-slate-200"}`}>
-                Tidak ada log klasemen untuk turnamen "{selectedTournament}" dengan filter saat ini.
+                Tidak ada log klasemen {viewMode === "final" ? "Grand Final " : ""}untuk turnamen "{selectedTournament}" dengan filter saat ini.
               </div>
             ) : (
               <div className={`overflow-x-auto rounded-xl border ${

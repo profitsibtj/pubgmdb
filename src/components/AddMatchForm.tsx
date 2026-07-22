@@ -3,7 +3,7 @@ import { Match, Team } from "../types";
 import { calculatePlacementPoints } from "../utils";
 import {
   Plus, Trash2, RefreshCw, AlertTriangle, Save, GripVertical, Layers,
-  Upload, X, Image, Settings
+  ChevronUp, ChevronDown
 } from "lucide-react";
 
 interface AddMatchFormProps {
@@ -11,19 +11,15 @@ interface AddMatchFormProps {
   onClose: () => void;
   isDarkMode: boolean;
   editingMatch?: Match | null;
-  matches?: Match[];
-  roster?: any[];
   tournaments?: any[];
   onUpdateTournaments?: (updatedTournaments: any[]) => void;
 }
 
-export const AddMatchForm: React.FC<AddMatchFormProps> = ({ 
-  onSave, 
-  onClose, 
-  isDarkMode, 
-  editingMatch, 
-  matches = [], 
-  roster = [],
+export const AddMatchForm: React.FC<AddMatchFormProps> = ({
+  onSave,
+  onClose,
+  isDarkMode,
+  editingMatch,
   tournaments: passedTournaments,
   onUpdateTournaments
 }) => {
@@ -50,6 +46,10 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
     liveLink: ""
   });
 
+  // Marks this match as part of the Grand Final stage, kept separate from the
+  // overall/regular-season standings for the same league in Standings.
+  const [isGrandFinal, setIsGrandFinal] = useState(false);
+
   const [showRosterSettings, setShowRosterSettings] = useState<boolean>(false);
 
   const createEmptyTeam = (name = "", placement = 1): Team => ({
@@ -57,6 +57,7 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
     placement,
     placementPoints: calculatePlacementPoints(placement),
     eliminationPoints: 0,
+    bonusPoints: 0,
     totalPoints: calculatePlacementPoints(placement),
     wwcd: placement === 1,
     players: []
@@ -220,82 +221,6 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
       onUpdateTournaments(updated);
     }
   };
-
-  // Team Logo states & management (moved from PlayerStats)
-  const [teamLogos, setTeamLogos] = useState<Record<string, string>>(() => {
-    const stored = localStorage.getItem("team_logos");
-    if (stored) {
-      try {
-        return JSON.parse(stored);
-      } catch (e) {
-        console.error("Failed to parse team logos", e);
-      }
-    }
-    return {};
-  });
-
-  const [isLogoManagerOpen, setIsLogoManagerOpen] = useState(false);
-
-  const saveTeamLogo = (teamName: string, logoData: string) => {
-    const next = { ...teamLogos, [teamName]: logoData };
-    setTeamLogos(next);
-    localStorage.setItem("team_logos", JSON.stringify(next));
-  };
-
-  const removeTeamLogo = (teamName: string) => {
-    const next = { ...teamLogos };
-    delete next[teamName];
-    setTeamLogos(next);
-    localStorage.setItem("team_logos", JSON.stringify(next));
-  };
-
-  const handleLogoUpload = (teamName: string, file: File) => {
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      if (typeof reader.result === "string") {
-        saveTeamLogo(teamName, reader.result);
-      }
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const getAllTeamsInTournament = (tour: any): string[] => {
-    if (!tour) return [];
-    const namesSet = new Set<string>();
-    const fields = [
-      tour.teams16Text,
-      tour.groupAText, tour.groupBText, tour.groupCText, tour.groupDText, tour.groupEText,
-      tour.groupAText_w2, tour.groupBText_w2, tour.groupCText_w2, tour.groupDText_w2, tour.groupEText_w2,
-      tour.groupAText_w3, tour.groupBText_w3, tour.groupCText_w3, tour.groupDText_w3, tour.groupEText_w3
-    ];
-    fields.forEach(f => {
-      if (!f) return;
-      f.split("\n").forEach((line: string) => {
-        const cleaned = line.trim();
-        if (cleaned) namesSet.add(cleaned);
-      });
-    });
-    return Array.from(namesSet).sort();
-  };
-
-  const logoTeams = React.useMemo(() => {
-    if (activeTournament) {
-      const tourTeams = getAllTeamsInTournament(activeTournament);
-      if (tourTeams.length > 0) return tourTeams;
-    }
-    // Fallback: extract from matches and roster
-    const namesSet = new Set<string>();
-    matches.forEach(m => {
-      (m.teams || []).forEach(t => {
-        if (t.name) namesSet.add(t.name.trim());
-      });
-    });
-    roster.forEach(r => {
-      if (r.team) namesSet.add(r.team.trim());
-    });
-    return Array.from(namesSet).sort();
-  }, [activeTournament, matches, roster]);
 
   const handleCreateTournament = () => {
     const newId = `tournament_${Date.now()}`;
@@ -502,6 +427,7 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
           placement,
           placementPoints: calculatePlacementPoints(placement),
           eliminationPoints: 0,
+          bonusPoints: 0,
           totalPoints: calculatePlacementPoints(placement),
           wwcd: placement === 1,
           players: []
@@ -533,6 +459,7 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
         placement,
         placementPoints: calculatePlacementPoints(placement),
         eliminationPoints: 0,
+        bonusPoints: 0,
         totalPoints: calculatePlacementPoints(placement),
         wwcd: placement === 1,
         players: []
@@ -572,7 +499,7 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
   const [touchOverIndex, setTouchOverIndex] = useState<number | null>(null);
 
   const reorderTeams = (fromIndex: number, toIndex: number) => {
-    if (fromIndex === toIndex) return;
+    if (fromIndex === toIndex || toIndex < 0 || toIndex >= teams.length) return;
     setTeams(prev => {
       const updated = [...prev];
       const draggedItem = updated[fromIndex];
@@ -583,12 +510,13 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
       return updated.map((t, idx) => {
         const placement = idx + 1;
         const elims = Number(t.eliminationPoints) || 0;
+        const bonus = Number(t.bonusPoints) || 0;
         const placementPoints = calculatePlacementPoints(placement);
         return {
           ...t,
           placement,
           placementPoints,
-          totalPoints: placementPoints + elims,
+          totalPoints: placementPoints + elims + bonus,
           wwcd: placement === 1,
           players: t.players || []
         };
@@ -660,6 +588,7 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
           map: editingMatch.map || "Erangel",
           liveLink: editingMatch.liveLink || ""
         });
+        setIsGrandFinal(!!editingMatch.isGrandFinal);
 
         // Find matching tournament preset by name to keep dropdown synchronized
         const matchingTour = tournaments.find(t => t.name.toLowerCase().trim() === matchLeague.toLowerCase().trim());
@@ -668,15 +597,19 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
         }
 
         if (editingMatch.teams) {
-          setTeams(editingMatch.teams.map(t => ({
-            name: t.name || "",
-            placement: t.placement || 1,
-            placementPoints: calculatePlacementPoints(t.placement || 1),
-            eliminationPoints: t.eliminationPoints || 0,
-            totalPoints: (calculatePlacementPoints(t.placement || 1)) + (t.eliminationPoints || 0),
-            wwcd: t.placement === 1,
-            players: t.players || []
-          })));
+          setTeams(editingMatch.teams.map(t => {
+            const bonus = Number(t.bonusPoints) || 0;
+            return {
+              name: t.name || "",
+              placement: t.placement || 1,
+              placementPoints: calculatePlacementPoints(t.placement || 1),
+              eliminationPoints: t.eliminationPoints || 0,
+              bonusPoints: bonus,
+              totalPoints: (calculatePlacementPoints(t.placement || 1)) + (t.eliminationPoints || 0) + bonus,
+              wwcd: t.placement === 1,
+              players: t.players || []
+            };
+          }));
         }
       }
     } else {
@@ -690,6 +623,7 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
           map: "Erangel",
           liveLink: ""
         });
+        setIsGrandFinal(false);
         applyFormatAndTeamsToLobby();
       }
     }
@@ -705,21 +639,32 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
       if (field === "placement") {
         const placement = Number(value) || 16;
         const elims = Number(updated[teamIdx].eliminationPoints) || 0;
+        const bonus = Number(updated[teamIdx].bonusPoints) || 0;
         const placementPoints = calculatePlacementPoints(placement);
         updated[teamIdx] = {
           ...updated[teamIdx],
           placement,
           placementPoints,
-          totalPoints: placementPoints + elims,
+          totalPoints: placementPoints + elims + bonus,
           wwcd: placement === 1
         };
       } else if (field === "eliminationPoints") {
         const elims = Number(value) || 0;
+        const bonus = Number(updated[teamIdx].bonusPoints) || 0;
         const placementPoints = calculatePlacementPoints(updated[teamIdx].placement);
         updated[teamIdx] = {
           ...updated[teamIdx],
           eliminationPoints: elims,
-          totalPoints: placementPoints + elims
+          totalPoints: placementPoints + elims + bonus
+        };
+      } else if (field === "bonusPoints") {
+        const bonus = Number(value) || 0;
+        const elims = Number(updated[teamIdx].eliminationPoints) || 0;
+        const placementPoints = calculatePlacementPoints(updated[teamIdx].placement);
+        updated[teamIdx] = {
+          ...updated[teamIdx],
+          bonusPoints: bonus,
+          totalPoints: placementPoints + elims + bonus
         };
       } else {
         updated[teamIdx] = {
@@ -747,11 +692,13 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
       // Auto-calculate final values for each team
       const processedTeams = teams.map(t => {
         const eliminationPoints = Number(t.eliminationPoints) || 0;
+        const bonusPoints = Number(t.bonusPoints) || 0;
         const placementPoints = calculatePlacementPoints(t.placement);
         return {
           ...t,
           eliminationPoints,
-          totalPoints: placementPoints + eliminationPoints,
+          bonusPoints,
+          totalPoints: placementPoints + eliminationPoints + bonusPoints,
           wwcd: t.placement === 1,
           players: t.players || []
         };
@@ -767,6 +714,7 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
         map: meta.map,
         patch: "", // Removed as requested
         liveLink: meta.liveLink.trim(),
+        isGrandFinal,
         teams: processedTeams.sort((a, b) => a.placement - b.placement)
       };
 
@@ -876,6 +824,24 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
           </div>
         </div>
 
+        {/* GRAND FINAL FLAG */}
+        <label className={`flex items-center gap-2.5 p-3 rounded-xl border cursor-pointer transition-all ${
+          isGrandFinal
+            ? "bg-amber-500/10 border-amber-500/30"
+            : isDarkMode ? "bg-slate-950/40 border-slate-850" : "bg-slate-50 border-slate-200"
+        }`}>
+          <input
+            type="checkbox"
+            checked={isGrandFinal}
+            onChange={(e) => setIsGrandFinal(e.target.checked)}
+            className="w-4 h-4 accent-amber-500 cursor-pointer"
+          />
+          <span className={`text-[11px] font-mono font-bold uppercase ${isGrandFinal ? "text-amber-500" : isDarkMode ? "text-slate-300" : "text-slate-600"}`}>
+            Tandai sebagai Match Grand Final
+          </span>
+          <span className="text-[9px] text-slate-500 normal-case">(dipisahkan dari klasemen overall liga yang sama di Standings)</span>
+        </label>
+
         {/* MANUAL ENTRY LAYOUT */}
         <div className="space-y-6 animate-fadeIn">
             
@@ -895,14 +861,6 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
                   >
                     <Plus className="w-3.5 h-3.5" />
                     BUAT TURNAMEN BARU
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setIsLogoManagerOpen(true)}
-                    className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-550 text-white rounded-lg text-xs font-black font-mono flex items-center gap-1 transition-all cursor-pointer shadow"
-                  >
-                    <Settings className="w-3.5 h-3.5" />
-                    KELOLA LOGO TIM
                   </button>
                   <button
                     type="button"
@@ -1319,10 +1277,13 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
                     <table className="w-full text-xs font-mono border-collapse">
                       <thead>
                         <tr className={`text-left border-b ${isDarkMode ? "bg-slate-950 border-slate-850 text-slate-400" : "bg-slate-50 border-slate-200 text-slate-500"}`}>
-                          <th className="py-2 px-1 w-8 text-center text-[9px] text-slate-500 font-bold uppercase">Grip</th>
+                          <th className="py-2 px-1 w-14 text-center text-[9px] text-slate-500 font-bold uppercase">Grip</th>
                           <th className="py-2 px-1.5 w-8 text-center font-bold uppercase text-[9px] tracking-wider">#</th>
                           <th className="py-2 px-2 min-w-[120px] font-bold uppercase text-[9px] tracking-wider">Nama Squad / Tim</th>
                           <th className="py-2 px-1 w-12 text-center font-bold uppercase text-[9px] tracking-wider">Kills</th>
+                          {activeTournament?.format === "16" && (
+                            <th className="py-2 px-1 w-12 text-center font-bold uppercase text-[9px] tracking-wider text-teal-400">Bonus</th>
+                          )}
                           <th className="py-2 px-2 w-16 text-center font-bold uppercase text-[9px] tracking-wider">Poin</th>
                         </tr>
                       </thead>
@@ -1331,6 +1292,7 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
                           const tIdx = offset + localIdx;
                           const placementPoints = calculatePlacementPoints(team.placement);
                           const elims = Number(team.eliminationPoints) || 0;
+                          const bonus = Number(team.bonusPoints) || 0;
                           const isDraggingThis = draggedIndex === tIdx;
                           const isTouchDropTarget = draggedIndex !== null && draggedIndex !== tIdx && touchOverIndex === tIdx;
 
@@ -1350,17 +1312,39 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
                                   : isDarkMode ? "hover:bg-slate-900/40" : "hover:bg-slate-50/40"
                               }`}
                             >
-                              {/* Grip Handle for Drag and Drop (mouse: HTML5 DnD, touch: manual tracking) */}
+                              {/* Grip Handle for Drag and Drop (mouse: HTML5 DnD, touch: manual tracking) + Up/Down reorder buttons */}
                               <td className="py-1.5 px-1 text-center" onClick={(e) => e.stopPropagation()}>
-                                <div
-                                  className="flex items-center justify-center cursor-grab active:cursor-grabbing text-slate-500 hover:text-amber-500 transition-colors touch-none"
-                                  style={{ touchAction: "none" }}
-                                  onTouchStart={(e) => handleGripTouchStart(e, tIdx)}
-                                  onTouchMove={handleGripTouchMove}
-                                  onTouchEnd={handleGripTouchEnd}
-                                  onTouchCancel={handleGripTouchEnd}
-                                >
-                                  <GripVertical className="w-3 h-3" />
+                                <div className="flex items-center justify-center gap-0.5">
+                                  <div className="flex flex-col">
+                                    <button
+                                      type="button"
+                                      onClick={() => reorderTeams(tIdx, tIdx - 1)}
+                                      disabled={tIdx === 0}
+                                      title="Pindah ke atas"
+                                      className="text-slate-500 hover:text-amber-500 disabled:opacity-20 disabled:hover:text-slate-500 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                                    >
+                                      <ChevronUp className="w-3 h-3" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => reorderTeams(tIdx, tIdx + 1)}
+                                      disabled={tIdx === teams.length - 1}
+                                      title="Pindah ke bawah"
+                                      className="text-slate-500 hover:text-amber-500 disabled:opacity-20 disabled:hover:text-slate-500 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                                    >
+                                      <ChevronDown className="w-3 h-3" />
+                                    </button>
+                                  </div>
+                                  <div
+                                    className="flex items-center justify-center cursor-grab active:cursor-grabbing text-slate-500 hover:text-amber-500 transition-colors touch-none"
+                                    style={{ touchAction: "none" }}
+                                    onTouchStart={(e) => handleGripTouchStart(e, tIdx)}
+                                    onTouchMove={handleGripTouchMove}
+                                    onTouchEnd={handleGripTouchEnd}
+                                    onTouchCancel={handleGripTouchEnd}
+                                  >
+                                    <GripVertical className="w-3 h-3" />
+                                  </div>
                                 </div>
                               </td>
                               <td className="py-1.5 px-1.5 text-center text-slate-500 font-bold font-mono">
@@ -1390,8 +1374,24 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
                                   required
                                 />
                               </td>
+                              {activeTournament?.format === "16" && (
+                                <td className="py-1.5 px-1 text-center" onClick={(e) => e.stopPropagation()}>
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    value={team.bonusPoints || 0}
+                                    placeholder="0"
+                                    onChange={(e) => {
+                                      const val = e.target.value === "" ? 0 : Number(e.target.value);
+                                      handleTeamChange(tIdx, "bonusPoints", val);
+                                    }}
+                                    title="Bonus / Starting Point (opsional, situasional)"
+                                    className={`w-10 p-0.5 text-center font-bold text-[11px] rounded-md border focus:outline-none focus:ring-1 focus:ring-teal-500 ${isDarkMode ? "bg-slate-900 border-slate-800 text-teal-300" : "bg-slate-50 border-slate-300 text-teal-700"}`}
+                                  />
+                                </td>
+                              )}
                               <td className="py-1.5 px-2 text-center font-extrabold font-mono text-amber-500 text-[11px]">
-                                {placementPoints + elims} <span className="text-[8px] text-slate-500 font-normal">pts</span>
+                                {placementPoints + elims + bonus} <span className="text-[8px] text-slate-500 font-normal">pts</span>
                               </td>
                             </tr>
                           );
@@ -1458,122 +1458,6 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
           </button>
         </div>
       </form>
-
-      {/* TEAM LOGO MANAGER MODAL DIALOG */}
-      {isLogoManagerOpen && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fadeIn font-mono">
-          <div className={`w-full max-w-2xl rounded-2xl shadow-2xl border flex flex-col max-h-[85vh] ${
-            isDarkMode ? "bg-slate-900 border-slate-800 text-white" : "bg-white border-slate-200 text-slate-900"
-          }`}>
-            {/* Header */}
-            <div className={`p-5 border-b flex justify-between items-center ${isDarkMode ? "border-slate-800/40" : "border-slate-200"}`}>
-              <div className="flex items-center gap-2">
-                <Image className="w-5 h-5 text-amber-500" />
-                <div>
-                  <h3 className="font-extrabold text-sm uppercase tracking-tight text-amber-500">Kelola Logo Tim / Squad</h3>
-                  <p className="text-[9px] uppercase text-slate-400 font-bold">Upload atau paste URL logo tim untuk ditampilkan di leaderboard</p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsLogoManagerOpen(false)}
-                className="p-1 rounded-lg text-slate-500 hover:text-slate-300 transition-colors cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {/* List Container */}
-            <div className="p-5 overflow-y-auto space-y-4 flex-1">
-              {logoTeams.length === 0 ? (
-                <p className="text-xs text-slate-500 text-center py-8 italic uppercase">Belum ada tim yang terdaftar di Match Log</p>
-              ) : (
-                logoTeams.map((teamName) => (
-                  <div 
-                    key={teamName}
-                    className={`p-3.5 rounded-xl border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 transition-colors ${
-                      isDarkMode ? "bg-slate-950/40 border-slate-850" : "bg-slate-50 border-slate-200"
-                    }`}
-                  >
-                    {/* Team Info / Logo Thumbnail */}
-                    <div className="flex items-center gap-3">
-                      {teamLogos[teamName] ? (
-                        <div className="relative group shrink-0">
-                          <img 
-                            src={teamLogos[teamName]} 
-                            alt={teamName} 
-                            className="w-12 h-12 rounded-full object-cover border border-slate-800/50 shadow"
-                            referrerPolicy="no-referrer"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => removeTeamLogo(teamName)}
-                            className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full p-0.5 hover:bg-red-600 transition-colors shadow"
-                            title="Hapus Logo"
-                          >
-                            <X className="w-3 h-3" />
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="w-12 h-12 rounded-full bg-amber-500/10 text-amber-500 text-xs font-black border border-amber-500/20 flex items-center justify-center shrink-0 uppercase">
-                          {teamName.slice(0, 2)}
-                        </div>
-                      )}
-                      <div>
-                        <h4 className={`font-extrabold text-xs uppercase tracking-tight ${isDarkMode ? "text-slate-200" : "text-slate-800"}`}>{teamName}</h4>
-                        <p className="text-[9px] text-slate-500 uppercase font-bold mt-0.5">Leaderboard Leader Team</p>
-                      </div>
-                    </div>
-
-                    {/* Logo Inputs */}
-                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
-                      {/* URL input */}
-                      <input 
-                        type="text"
-                        placeholder="Paste URL Logo..."
-                        value={teamLogos[teamName] || ""}
-                        onChange={(e) => saveTeamLogo(teamName, e.target.value)}
-                        className={`px-2 py-1.5 text-[10px] rounded-lg border focus:outline-none focus:ring-1 focus:ring-amber-500 w-full sm:w-48 ${
-                          isDarkMode ? "bg-slate-900 border-slate-850 text-white" : "bg-white border-slate-300 text-slate-900"
-                        }`}
-                      />
-
-                      {/* File upload trigger */}
-                      <label className={`px-3 py-1.5 rounded-lg border font-bold text-[10px] uppercase text-center cursor-pointer transition-colors flex items-center justify-center gap-1 shrink-0 ${
-                        isDarkMode ? "border-slate-800/50 hover:bg-slate-850 bg-slate-900 text-amber-500" : "border-slate-200 hover:bg-slate-100 bg-white text-slate-700"
-                      }`}>
-                        <Upload className="w-3.5 h-3.5" />
-                        <span>Upload</span>
-                        <input 
-                          type="file" 
-                          accept="image/*"
-                          onChange={(e) => {
-                            if (e.target.files && e.target.files[0]) {
-                              handleLogoUpload(teamName, e.target.files[0]);
-                            }
-                          }}
-                          className="hidden" 
-                        />
-                      </label>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-
-            {/* Footer */}
-            <div className={`p-4 border-t flex justify-end ${isDarkMode ? "border-slate-800/40" : "border-slate-200"}`}>
-              <button
-                type="button"
-                onClick={() => setIsLogoManagerOpen(false)}
-                className="px-5 py-2 rounded-xl text-xs font-bold uppercase bg-amber-500 hover:bg-amber-400 text-slate-950 cursor-pointer shadow-md"
-              >
-                Selesai
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };
