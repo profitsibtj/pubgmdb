@@ -1,7 +1,8 @@
 import React, { useState, useMemo, useEffect } from "react";
 import { Match, Team, Player } from "../types";
 import { RosterPlayer } from "./RosterManager";
-import { 
+import { getMatchWeekLabel } from "../utils";
+import {
   Users, Save, RefreshCw, Layers, CheckCircle,
   Plus, Trash2
 } from "lucide-react";
@@ -72,6 +73,28 @@ export const PlayerInputPanel: React.FC<PlayerInputPanelProps> = ({
     }
   }, [leagues, selectedLeague]);
 
+  // Look up the selected tournament's preset to see which stats granularities it supports.
+  // Not every tournament tracks both - day and week are independently opt-in per tournament.
+  const selectedTournamentPreset = useMemo(() => {
+    if (!tournaments || !selectedLeague) return null;
+    return tournaments.find((t: any) => (t.name || "").toLowerCase().trim() === selectedLeague.toLowerCase().trim()) || null;
+  }, [tournaments, selectedLeague]);
+
+  // Missing config defaults to day-only, matching every tournament's behavior before this setting existed.
+  const dayStatsEnabled = selectedTournamentPreset ? selectedTournamentPreset.playerStatsDayEnabled !== false : true;
+  const weekStatsEnabled = !!selectedTournamentPreset?.playerStatsWeekEnabled;
+
+  const [statsMode, setStatsMode] = useState<"day" | "week">("day");
+
+  // Keep statsMode valid for whichever granularities the current tournament actually supports
+  useEffect(() => {
+    if (statsMode === "day" && !dayStatsEnabled && weekStatsEnabled) {
+      setStatsMode("week");
+    } else if (statsMode === "week" && !weekStatsEnabled && dayStatsEnabled) {
+      setStatsMode("day");
+    }
+  }, [selectedLeague, dayStatsEnabled, weekStatsEnabled, statsMode]);
+
   // 2. Extract existing dates for the selected tournament
   const availableDates = useMemo(() => {
     if (!selectedLeague) return [];
@@ -84,8 +107,26 @@ export const PlayerInputPanel: React.FC<PlayerInputPanelProps> = ({
     return Array.from(dates).sort((a, b) => b.localeCompare(a)); // Descending
   }, [matches, selectedLeague]);
 
-  // 3. Date Selection state
+  // Extract existing weeks for the selected tournament (only present when matchCodes encode a week)
+  const availableWeeks = useMemo(() => {
+    if (!selectedLeague) return [];
+    const weeks = new Set<string>();
+    matches.forEach(m => {
+      if (!m.isDailyStats && m.league && m.league.toLowerCase().trim() === selectedLeague.toLowerCase().trim()) {
+        const w = getMatchWeekLabel(m);
+        if (w) weeks.add(w);
+      }
+    });
+    return Array.from(weeks).sort((a, b) => {
+      const na = parseInt(a.replace(/\D/g, ""), 10);
+      const nb = parseInt(b.replace(/\D/g, ""), 10);
+      return nb - na; // Descending, matching availableDates' most-recent-first order
+    });
+  }, [matches, selectedLeague]);
+
+  // 3. Date/Week Selection state
   const [selectedDate, setSelectedDate] = useState<string>("");
+  const [selectedWeek, setSelectedWeek] = useState<string>("");
 
   // Adjust date selection when selectedLeague or availableDates changes
   useEffect(() => {
@@ -95,6 +136,17 @@ export const PlayerInputPanel: React.FC<PlayerInputPanelProps> = ({
       setSelectedDate("");
     }
   }, [selectedLeague, availableDates]);
+
+  // Adjust week selection when selectedLeague or availableWeeks changes
+  useEffect(() => {
+    if (availableWeeks.length > 0) {
+      setSelectedWeek(availableWeeks[0]);
+    } else {
+      setSelectedWeek("");
+    }
+  }, [selectedLeague, availableWeeks]);
+
+  const dailyWeekMatchCode = (week: string) => "DAILY_" + week.replace(/\s+/g, "").toUpperCase();
 
   // 4. Dynamic Columns state
   const [columns, setColumns] = useState<ColumnConfig[]>([
@@ -117,16 +169,18 @@ export const PlayerInputPanel: React.FC<PlayerInputPanelProps> = ({
 
   // Load existing daily stats match record if it exists
   const loadExistingDailyStats = React.useCallback(() => {
-    if (!selectedLeague || !selectedDate) {
+    const periodKey = statsMode === "week" ? selectedWeek : selectedDate;
+    if (!selectedLeague || !periodKey) {
       setFlatPlayers([]);
       return;
     }
 
-    const foundDailyMatch = matches.find(m => 
-      m.isDailyStats === true && 
-      (m.league || "").toLowerCase().trim() === selectedLeague.toLowerCase().trim() &&
-      m.date === selectedDate
-    );
+    const foundDailyMatch = matches.find(m => {
+      if (m.isDailyStats !== true || (m.league || "").toLowerCase().trim() !== selectedLeague.toLowerCase().trim()) {
+        return false;
+      }
+      return statsMode === "week" ? m.matchCode === dailyWeekMatchCode(selectedWeek) : m.date === selectedDate;
+    });
 
     if (foundDailyMatch) {
       // Load custom columns config from match record if it exists, otherwise use current columns
@@ -185,12 +239,12 @@ export const PlayerInputPanel: React.FC<PlayerInputPanelProps> = ({
       setFlatPlayers(initialPlayers);
       setStatusMsg(null);
     }
-  }, [selectedLeague, selectedDate, matches]);
+  }, [selectedLeague, selectedDate, selectedWeek, statsMode, matches]);
 
-  // Load whenever selected league or date changes
+  // Load whenever selected league, day/week mode, or the chosen period changes
   useEffect(() => {
     loadExistingDailyStats();
-  }, [selectedLeague, selectedDate, matches.length]);
+  }, [selectedLeague, selectedDate, selectedWeek, statsMode, matches.length]);
 
   // Add Dynamic Column via Custom Inline Form
   const submitAddColumn = () => {
@@ -352,8 +406,8 @@ export const PlayerInputPanel: React.FC<PlayerInputPanelProps> = ({
       alert("Harap pilih turnamen!");
       return;
     }
-    if (!selectedDate) {
-      alert("Harap pilih tanggal!");
+    if (statsMode === "week" ? !selectedWeek : !selectedDate) {
+      alert(statsMode === "week" ? "Harap pilih week!" : "Harap pilih tanggal!");
       return;
     }
 
@@ -421,13 +475,14 @@ export const PlayerInputPanel: React.FC<PlayerInputPanelProps> = ({
       });
 
       // 3. Create full daily Match document
-      const docId = `daily_${finalLeagueName.toLowerCase().replace(/[^a-z0-9]/g, "_")}_${selectedDate}`;
+      const periodSlug = statsMode === "week" ? `week_${selectedWeek.replace(/\D/g, "")}` : selectedDate;
+      const docId = `daily_${finalLeagueName.toLowerCase().replace(/[^a-z0-9]/g, "_")}_${periodSlug}`;
       const dailyMatchRecord: Match = {
         id: docId,
         league: finalLeagueName,
-        date: selectedDate,
+        date: statsMode === "week" ? selectedWeek : selectedDate,
         gameNo: "Daily Stats",
-        matchCode: "DAILY_" + selectedDate.replace(/-/g, ""),
+        matchCode: statsMode === "week" ? dailyWeekMatchCode(selectedWeek) : ("DAILY_" + selectedDate.replace(/-/g, "")),
         map: "All Maps",
         isDailyStats: true,
         teams: savedTeams
@@ -492,10 +547,55 @@ export const PlayerInputPanel: React.FC<PlayerInputPanelProps> = ({
               </select>
             </div>
 
-            {/* Date Dropdown strictly from match logs */}
+            {/* Date/Week Dropdown strictly from match logs */}
             <div className="space-y-1.5">
-              <label className="text-[10px] text-slate-400 font-bold uppercase block">2. Pilih Tanggal Pertandingan:</label>
-              {availableDates.length > 0 ? (
+              <div className="flex items-center justify-between gap-2">
+                <label className="text-[10px] text-slate-400 font-bold uppercase block">
+                  2. Pilih {statsMode === "week" ? "Week" : "Tanggal"} Pertandingan:
+                </label>
+                {dayStatsEnabled && weekStatsEnabled && (
+                  <div className="flex gap-1 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setStatsMode("day")}
+                      className={`px-2 py-0.5 rounded text-[9px] font-bold uppercase cursor-pointer transition-all ${
+                        statsMode === "day" ? "bg-amber-500 text-slate-950" : "bg-slate-850 text-slate-400"
+                      }`}
+                    >
+                      Per Hari
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setStatsMode("week")}
+                      className={`px-2 py-0.5 rounded text-[9px] font-bold uppercase cursor-pointer transition-all ${
+                        statsMode === "week" ? "bg-amber-500 text-slate-950" : "bg-slate-850 text-slate-400"
+                      }`}
+                    >
+                      Per Minggu
+                    </button>
+                  </div>
+                )}
+              </div>
+              {statsMode === "week" ? (
+                availableWeeks.length > 0 ? (
+                  <select
+                    value={selectedWeek}
+                    onChange={(e) => setSelectedWeek(e.target.value)}
+                    className={`w-full rounded-lg p-2.5 text-xs font-mono font-bold focus:ring-1 focus:ring-amber-500 cursor-pointer ${
+                      isDarkMode ? "bg-slate-950 border-slate-800 text-white" : "bg-slate-50 border-slate-300 text-slate-900"
+                    }`}
+                  >
+                    <option value="">-- Pilih Week Yang Ada --</option>
+                    {availableWeeks.map(w => (
+                      <option key={w} value={w}>{w}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <div className="p-2.5 bg-slate-950/20 border border-dashed border-slate-800 rounded-lg text-slate-500 text-xs italic">
+                    {selectedLeague ? "Tidak ada Week terdeteksi (matchCode belum mengandung Week) untuk turnamen ini." : "Harap pilih turnamen terlebih dahulu."}
+                  </div>
+                )
+              ) : availableDates.length > 0 ? (
                 <select
                   value={selectedDate}
                   onChange={(e) => setSelectedDate(e.target.value)}
@@ -519,7 +619,7 @@ export const PlayerInputPanel: React.FC<PlayerInputPanelProps> = ({
       </div>
 
       {/* SPREADSHEET */}
-      {selectedLeague && selectedDate && (
+      {selectedLeague && (statsMode === "week" ? selectedWeek : selectedDate) && (
         <div className="space-y-4">
           <div className={`p-5 rounded-2xl space-y-5 border transition-all ${
             isDarkMode ? "bg-slate-950 border-slate-850" : "bg-white border-slate-200 shadow-sm"
