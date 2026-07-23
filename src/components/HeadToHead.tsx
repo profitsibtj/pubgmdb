@@ -8,7 +8,7 @@ interface HeadToHeadProps {
 }
 
 export const HeadToHead: React.FC<HeadToHeadProps> = ({ matches, isDarkMode }) => {
-  const compType = "player";
+  const [compType, setCompType] = useState<"player" | "team">("player");
   const [target1, setTarget1] = useState("");
   const [target2, setTarget2] = useState("");
 
@@ -83,26 +83,76 @@ export const HeadToHead: React.FC<HeadToHeadProps> = ({ matches, isDarkMode }) =
     }));
   }, [matches]);
 
+  // Process overall stats of teams (aggregated across every match they've played)
+  const teamsData = useMemo(() => {
+    const list: { [name: string]: {
+      name: string;
+      matches: number;
+      elims: number;
+      placementPointsTotal: number;
+      totalPointsSum: number;
+      wwcd: number;
+      top4: number;
+    }} = {};
+
+    matches.forEach((m) => {
+      if (m.isDailyStats) return;
+      (m.teams || []).forEach((t) => {
+        const name = (t.name || "").trim();
+        if (!name) return;
+
+        if (!list[name]) {
+          list[name] = { name, matches: 0, elims: 0, placementPointsTotal: 0, totalPointsSum: 0, wwcd: 0, top4: 0 };
+        }
+
+        const tm = list[name];
+        tm.matches += 1;
+        tm.elims += Number(t.eliminationPoints) || 0;
+        tm.placementPointsTotal += Number(t.placementPoints) || 0;
+        tm.totalPointsSum += Number(t.totalPoints) || 0;
+        if (t.placement === 1) tm.wwcd += 1;
+        if (t.placement >= 1 && t.placement <= 4) tm.top4 += 1;
+      });
+    });
+
+    return Object.values(list).map((t) => ({
+      ...t,
+      avgElims: t.matches > 0 ? Math.round((t.elims / t.matches) * 10) / 10 : 0,
+      avgPlacementPoints: t.matches > 0 ? Math.round((t.placementPointsTotal / t.matches) * 10) / 10 : 0,
+      avgTotalPoints: t.matches > 0 ? Math.round((t.totalPointsSum / t.matches) * 10) / 10 : 0,
+      wwcdRate: t.matches > 0 ? Math.round((t.wwcd / t.matches) * 100) : 0,
+      top4Rate: t.matches > 0 ? Math.round((t.top4 / t.matches) * 100) : 0
+    }));
+  }, [matches]);
+
+  const activeData = compType === "player" ? playersData : teamsData;
+
+  // Reset selections when switching Player <-> Team, since the name spaces don't overlap
+  React.useEffect(() => {
+    setTarget1("");
+    setTarget2("");
+  }, [compType]);
+
   // Set initial selections when data changes
   React.useEffect(() => {
-    if (playersData.length >= 2) {
-      if (!target1 || !playersData.some(p => p.name === target1)) {
-        setTarget1(playersData[0].name);
+    if (activeData.length >= 2) {
+      if (!target1 || !activeData.some(p => p.name === target1)) {
+        setTarget1(activeData[0].name);
       }
-      if (!target2 || !playersData.some(p => p.name === target2)) {
-        setTarget2(playersData[1].name);
+      if (!target2 || !activeData.some(p => p.name === target2)) {
+        setTarget2(activeData[1].name);
       }
     }
-  }, [playersData]);
+  }, [activeData]);
 
   // Get compared objects
   const obj1 = useMemo(() => {
-    return playersData.find((p) => p.name === target1);
-  }, [playersData, target1]);
+    return activeData.find((p) => p.name === target1);
+  }, [activeData, target1]);
 
   const obj2 = useMemo(() => {
-    return playersData.find((p) => p.name === target2);
-  }, [playersData, target2]);
+    return activeData.find((p) => p.name === target2);
+  }, [activeData, target2]);
 
   // Format survival time
   const formatTime = (secs: number) => {
@@ -117,10 +167,30 @@ export const HeadToHead: React.FC<HeadToHeadProps> = ({ matches, isDarkMode }) =
       <div className={`p-5 rounded-2xl flex flex-col md:flex-row gap-5 justify-between items-start md:items-center transition-all ${
         isDarkMode ? "bg-slate-900/50" : "bg-white border border-slate-200 shadow-sm"
       }`}>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
           <span className="text-sm font-black font-mono text-amber-500 tracking-tight uppercase">
-            ⚔️ Player vs Player Comparison
+            ⚔️ {compType === "player" ? "Player vs Player" : "Team vs Team"} Comparison
           </span>
+          <div className="flex items-center gap-1 border border-slate-800/20 p-1 rounded-xl bg-slate-950/20">
+            <button
+              type="button"
+              onClick={() => setCompType("player")}
+              className={`px-2.5 py-1 rounded-lg text-[9px] font-bold uppercase transition-all cursor-pointer ${
+                compType === "player" ? "bg-amber-500 text-slate-950" : "text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              Player
+            </button>
+            <button
+              type="button"
+              onClick={() => setCompType("team")}
+              className={`px-2.5 py-1 rounded-lg text-[9px] font-bold uppercase transition-all cursor-pointer ${
+                compType === "team" ? "bg-amber-500 text-slate-950" : "text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              Team
+            </button>
+          </div>
         </div>
 
         {/* Dynamic selectors */}
@@ -134,7 +204,7 @@ export const HeadToHead: React.FC<HeadToHeadProps> = ({ matches, isDarkMode }) =
                 isDarkMode ? "bg-slate-950 border-slate-800 text-amber-500" : "bg-white border-slate-300 text-amber-600"
               }`}
             >
-              {playersData.map((p) => (
+              {activeData.map((p) => (
                 <option key={p.name} value={p.name} disabled={p.name === target2}>
                   {p.name}
                 </option>
@@ -153,7 +223,7 @@ export const HeadToHead: React.FC<HeadToHeadProps> = ({ matches, isDarkMode }) =
                 isDarkMode ? "bg-slate-950 border-slate-800 text-teal-400" : "bg-white border-slate-300 text-teal-600"
               }`}
             >
-              {playersData.map((p) => (
+              {activeData.map((p) => (
                 <option key={p.name} value={p.name} disabled={p.name === target1}>
                   {p.name}
                 </option>
@@ -169,9 +239,9 @@ export const HeadToHead: React.FC<HeadToHeadProps> = ({ matches, isDarkMode }) =
           isDarkMode ? "bg-slate-900/50 text-slate-400" : "bg-white border border-slate-200 text-slate-600"
         }`}>
           <Swords className="w-10 h-10 text-amber-500/80 mb-2 animate-pulse" />
-          <p className="font-mono text-xs font-bold uppercase tracking-wider text-slate-400">Tactical Comparison Disabled</p>
+          <p className="font-mono text-xs font-bold uppercase tracking-wider text-slate-400">Belum Cukup Data</p>
           <p className="max-w-md text-[11px] leading-relaxed text-slate-500 font-mono">
-            Sistem pelacakan telah disederhanakan untuk hanya melakukan log performa tim secara kolektif. Rincian data stats pro player individual tidak lagi direkam pada rilis ini.
+            Minimal perlu 2 {compType === "player" ? "player" : "tim"} dengan data pertandingan tercatat untuk menampilkan perbandingan taktikal ini.
           </p>
         </div>
       ) : (
@@ -197,12 +267,12 @@ export const HeadToHead: React.FC<HeadToHeadProps> = ({ matches, isDarkMode }) =
                     { label: "MVP RATE", val1: (obj1 as any).mvpRate, val2: (obj2 as any).mvpRate, max: 50, display: (v: number) => `${v}%` }
                   ]
                 : [
-                    { label: "AVG ELIMS", val1: (obj1 as any).avgElims, val2: (obj2 as any).avgElims, max: 3.0, display: (v: number) => v.toFixed(1) },
-                    { label: "AVG DAMAGE", val1: (obj1 as any).avgDamage, val2: (obj2 as any).avgDamage, max: 500, display: (v: number) => Math.round(v).toString() },
+                    { label: "AVG KILLS", val1: (obj1 as any).avgElims, val2: (obj2 as any).avgElims, max: 6.0, display: (v: number) => v.toFixed(1) },
+                    { label: "AVG PLACEMENT PTS", val1: (obj1 as any).avgPlacementPoints, val2: (obj2 as any).avgPlacementPoints, max: 10, display: (v: number) => v.toFixed(1) },
+                    { label: "AVG TOTAL PTS", val1: (obj1 as any).avgTotalPoints, val2: (obj2 as any).avgTotalPoints, max: 16, display: (v: number) => v.toFixed(1) },
                     { label: "WWCD RATE", val1: (obj1 as any).wwcdRate, val2: (obj2 as any).wwcdRate, max: 40, display: (v: number) => `${v}%` },
-                    { label: "MVP FREQ", val1: (obj1 as any).mvp, val2: (obj2 as any).mvp, max: 5, display: (v: number) => `${v}x` },
-                    { label: "POPULARITY", val1: (obj1 as any).matches, val2: (obj2 as any).matches, max: 15, display: (v: number) => `${v}x` },
-                    { label: "WWCD FREQ", val1: (obj1 as any).wwcd, val2: (obj2 as any).wwcd, max: 5, display: (v: number) => `${v}x` }
+                    { label: "TOP 4 RATE", val1: (obj1 as any).top4Rate, val2: (obj2 as any).top4Rate, max: 100, display: (v: number) => `${v}%` },
+                    { label: "MATCHES", val1: (obj1 as any).matches, val2: (obj2 as any).matches, max: 15, display: (v: number) => `${v}x` }
                   ];
 
               const count = metrics.length;
@@ -362,30 +432,59 @@ export const HeadToHead: React.FC<HeadToHeadProps> = ({ matches, isDarkMode }) =
                 </div>
               </div>
 
-              {/* Damage bar */}
-              <div className="space-y-1">
-                <div className="flex justify-between text-xs font-mono">
-                  <span className={`text-left flex items-center justify-start gap-1 ${obj1.avgDamage > obj2.avgDamage ? "text-amber-500 font-bold" : "text-slate-400"}`}>
-                    {obj1.avgDamage > obj2.avgDamage && <Crown className="w-3.5 h-3.5 text-amber-500 shrink-0" />}
-                    {Math.round(obj1.avgDamage)} dmg
-                  </span>
-                  <span className="text-slate-500 font-bold uppercase text-[10px]">AVG DAMAGE</span>
-                  <span className={`text-right flex items-center justify-end gap-1 ${obj2.avgDamage > obj1.avgDamage ? "text-teal-400 font-bold" : "text-slate-400"}`}>
-                    {obj2.avgDamage > obj1.avgDamage && <Crown className="w-3.5 h-3.5 text-teal-400 shrink-0" />}
-                    {Math.round(obj2.avgDamage)} dmg
-                  </span>
+              {/* Damage bar (player only - teams have no per-damage field) */}
+              {compType === "player" && (
+                <div className="space-y-1">
+                  <div className="flex justify-between text-xs font-mono">
+                    <span className={`text-left flex items-center justify-start gap-1 ${(obj1 as any).avgDamage > (obj2 as any).avgDamage ? "text-amber-500 font-bold" : "text-slate-400"}`}>
+                      {(obj1 as any).avgDamage > (obj2 as any).avgDamage && <Crown className="w-3.5 h-3.5 text-amber-500 shrink-0" />}
+                      {Math.round((obj1 as any).avgDamage)} dmg
+                    </span>
+                    <span className="text-slate-500 font-bold uppercase text-[10px]">AVG DAMAGE</span>
+                    <span className={`text-right flex items-center justify-end gap-1 ${(obj2 as any).avgDamage > (obj1 as any).avgDamage ? "text-teal-400 font-bold" : "text-slate-400"}`}>
+                      {(obj2 as any).avgDamage > (obj1 as any).avgDamage && <Crown className="w-3.5 h-3.5 text-teal-400 shrink-0" />}
+                      {Math.round((obj2 as any).avgDamage)} dmg
+                    </span>
+                  </div>
+                  <div className="h-2 rounded-full overflow-hidden bg-slate-950 flex border border-slate-900">
+                    <div
+                      className="bg-amber-500 h-full border-r border-slate-950 transition-all duration-300"
+                      style={{ width: `${(obj1 as any).avgDamage + (obj2 as any).avgDamage > 0 ? ((obj1 as any).avgDamage / ((obj1 as any).avgDamage + (obj2 as any).avgDamage)) * 100 : 50}%` }}
+                    />
+                    <div
+                      className="bg-teal-500 h-full transition-all duration-300"
+                      style={{ width: `${(obj1 as any).avgDamage + (obj2 as any).avgDamage > 0 ? ((obj2 as any).avgDamage / ((obj1 as any).avgDamage + (obj2 as any).avgDamage)) * 100 : 50}%` }}
+                    />
+                  </div>
                 </div>
-                <div className="h-2 rounded-full overflow-hidden bg-slate-950 flex border border-slate-900">
-                  <div 
-                    className="bg-amber-500 h-full border-r border-slate-950 transition-all duration-300" 
-                    style={{ width: `${obj1.avgDamage + obj2.avgDamage > 0 ? (obj1.avgDamage / (obj1.avgDamage + obj2.avgDamage)) * 100 : 50}%` }} 
-                  />
-                  <div 
-                    className="bg-teal-500 h-full transition-all duration-300" 
-                    style={{ width: `${obj1.avgDamage + obj2.avgDamage > 0 ? (obj2.avgDamage / (obj1.avgDamage + obj2.avgDamage)) * 100 : 50}%` }} 
-                  />
+              )}
+
+              {/* Placement Points bar (team only) */}
+              {compType === "team" && (
+                <div className="space-y-1">
+                  <div className="flex justify-between text-xs font-mono">
+                    <span className={`text-left flex items-center justify-start gap-1 ${(obj1 as any).avgPlacementPoints > (obj2 as any).avgPlacementPoints ? "text-amber-500 font-bold" : "text-slate-400"}`}>
+                      {(obj1 as any).avgPlacementPoints > (obj2 as any).avgPlacementPoints && <Crown className="w-3.5 h-3.5 text-amber-500 shrink-0" />}
+                      {(obj1 as any).avgPlacementPoints.toFixed(1)} pts
+                    </span>
+                    <span className="text-slate-500 font-bold uppercase text-[10px]">AVG PLACEMENT PTS</span>
+                    <span className={`text-right flex items-center justify-end gap-1 ${(obj2 as any).avgPlacementPoints > (obj1 as any).avgPlacementPoints ? "text-teal-400 font-bold" : "text-slate-400"}`}>
+                      {(obj2 as any).avgPlacementPoints > (obj1 as any).avgPlacementPoints && <Crown className="w-3.5 h-3.5 text-teal-400 shrink-0" />}
+                      {(obj2 as any).avgPlacementPoints.toFixed(1)} pts
+                    </span>
+                  </div>
+                  <div className="h-2 rounded-full overflow-hidden bg-slate-950 flex border border-slate-900">
+                    <div
+                      className="bg-amber-500 h-full border-r border-slate-950 transition-all duration-300"
+                      style={{ width: `${(obj1 as any).avgPlacementPoints + (obj2 as any).avgPlacementPoints > 0 ? ((obj1 as any).avgPlacementPoints / ((obj1 as any).avgPlacementPoints + (obj2 as any).avgPlacementPoints)) * 100 : 50}%` }}
+                    />
+                    <div
+                      className="bg-teal-500 h-full transition-all duration-300"
+                      style={{ width: `${(obj1 as any).avgPlacementPoints + (obj2 as any).avgPlacementPoints > 0 ? ((obj2 as any).avgPlacementPoints / ((obj1 as any).avgPlacementPoints + (obj2 as any).avgPlacementPoints)) * 100 : 50}%` }}
+                    />
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* WWCD Rate bar */}
               <div className="space-y-1">
@@ -412,30 +511,59 @@ export const HeadToHead: React.FC<HeadToHeadProps> = ({ matches, isDarkMode }) =
                 </div>
               </div>
 
-              {/* MVP conversion bar */}
-              <div className="space-y-1">
-                <div className="flex justify-between text-xs font-mono">
-                  <span className={`text-left flex items-center justify-start gap-1 ${obj1.mvpRate > obj2.mvpRate ? "text-amber-500 font-bold" : "text-slate-400"}`}>
-                    {obj1.mvpRate > obj2.mvpRate && <Crown className="w-3.5 h-3.5 text-amber-500 shrink-0" />}
-                    {obj1.mvpRate}% ({obj1.mvp} MVPs)
-                  </span>
-                  <span className="text-slate-500 font-bold uppercase text-[10px]">MVP FREQUENCY</span>
-                  <span className={`text-right flex items-center justify-end gap-1 ${obj2.mvpRate > obj1.mvpRate ? "text-teal-400 font-bold" : "text-slate-400"}`}>
-                    {obj2.mvpRate > obj1.mvpRate && <Crown className="w-3.5 h-3.5 text-teal-400 shrink-0" />}
-                    {obj2.mvpRate}% ({obj2.mvp} MVPs)
-                  </span>
+              {/* MVP conversion bar (player only) */}
+              {compType === "player" && (
+                <div className="space-y-1">
+                  <div className="flex justify-between text-xs font-mono">
+                    <span className={`text-left flex items-center justify-start gap-1 ${(obj1 as any).mvpRate > (obj2 as any).mvpRate ? "text-amber-500 font-bold" : "text-slate-400"}`}>
+                      {(obj1 as any).mvpRate > (obj2 as any).mvpRate && <Crown className="w-3.5 h-3.5 text-amber-500 shrink-0" />}
+                      {(obj1 as any).mvpRate}% ({(obj1 as any).mvp} MVPs)
+                    </span>
+                    <span className="text-slate-500 font-bold uppercase text-[10px]">MVP FREQUENCY</span>
+                    <span className={`text-right flex items-center justify-end gap-1 ${(obj2 as any).mvpRate > (obj1 as any).mvpRate ? "text-teal-400 font-bold" : "text-slate-400"}`}>
+                      {(obj2 as any).mvpRate > (obj1 as any).mvpRate && <Crown className="w-3.5 h-3.5 text-teal-400 shrink-0" />}
+                      {(obj2 as any).mvpRate}% ({(obj2 as any).mvp} MVPs)
+                    </span>
+                  </div>
+                  <div className="h-2 rounded-full overflow-hidden bg-slate-950 flex border border-slate-900">
+                    <div
+                      className="bg-amber-500 h-full border-r border-slate-950 transition-all duration-300"
+                      style={{ width: `${(obj1 as any).mvpRate + (obj2 as any).mvpRate > 0 ? ((obj1 as any).mvpRate / ((obj1 as any).mvpRate + (obj2 as any).mvpRate)) * 100 : 50}%` }}
+                    />
+                    <div
+                      className="bg-teal-500 h-full transition-all duration-300"
+                      style={{ width: `${(obj1 as any).mvpRate + (obj2 as any).mvpRate > 0 ? ((obj2 as any).mvpRate / ((obj1 as any).mvpRate + (obj2 as any).mvpRate)) * 100 : 50}%` }}
+                    />
+                  </div>
                 </div>
-                <div className="h-2 rounded-full overflow-hidden bg-slate-950 flex border border-slate-900">
-                  <div 
-                    className="bg-amber-500 h-full border-r border-slate-950 transition-all duration-300" 
-                    style={{ width: `${obj1.mvpRate + obj2.mvpRate > 0 ? (obj1.mvpRate / (obj1.mvpRate + obj2.mvpRate)) * 100 : 50}%` }} 
-                  />
-                  <div 
-                    className="bg-teal-500 h-full transition-all duration-300" 
-                    style={{ width: `${obj1.mvpRate + obj2.mvpRate > 0 ? (obj2.mvpRate / (obj1.mvpRate + obj2.mvpRate)) * 100 : 50}%` }} 
-                  />
+              )}
+
+              {/* Top 4 Rate bar (team only) */}
+              {compType === "team" && (
+                <div className="space-y-1">
+                  <div className="flex justify-between text-xs font-mono">
+                    <span className={`text-left flex items-center justify-start gap-1 ${(obj1 as any).top4Rate > (obj2 as any).top4Rate ? "text-amber-500 font-bold" : "text-slate-400"}`}>
+                      {(obj1 as any).top4Rate > (obj2 as any).top4Rate && <Crown className="w-3.5 h-3.5 text-amber-500 shrink-0" />}
+                      {(obj1 as any).top4Rate}% ({(obj1 as any).top4} kali)
+                    </span>
+                    <span className="text-slate-500 font-bold uppercase text-[10px]">TOP 4 RATE</span>
+                    <span className={`text-right flex items-center justify-end gap-1 ${(obj2 as any).top4Rate > (obj1 as any).top4Rate ? "text-teal-400 font-bold" : "text-slate-400"}`}>
+                      {(obj2 as any).top4Rate > (obj1 as any).top4Rate && <Crown className="w-3.5 h-3.5 text-teal-400 shrink-0" />}
+                      {(obj2 as any).top4Rate}% ({(obj2 as any).top4} kali)
+                    </span>
+                  </div>
+                  <div className="h-2 rounded-full overflow-hidden bg-slate-950 flex border border-slate-900">
+                    <div
+                      className="bg-amber-500 h-full border-r border-slate-950 transition-all duration-300"
+                      style={{ width: `${(obj1 as any).top4Rate + (obj2 as any).top4Rate > 0 ? ((obj1 as any).top4Rate / ((obj1 as any).top4Rate + (obj2 as any).top4Rate)) * 100 : 50}%` }}
+                    />
+                    <div
+                      className="bg-teal-500 h-full transition-all duration-300"
+                      style={{ width: `${(obj1 as any).top4Rate + (obj2 as any).top4Rate > 0 ? ((obj2 as any).top4Rate / ((obj1 as any).top4Rate + (obj2 as any).top4Rate)) * 100 : 50}%` }}
+                    />
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
 
             {/* GENERAL PARAMETERS ROW */}
@@ -465,6 +593,22 @@ export const HeadToHead: React.FC<HeadToHeadProps> = ({ matches, isDarkMode }) =
                     <div className="flex justify-between py-1">
                       <span className="text-slate-400">Avg Survival Time:</span>
                       <span className="text-slate-200 font-extrabold">{formatTime((obj1 as any).avgSurvival)} vs {formatTime((obj2 as any).avgSurvival)}</span>
+                    </div>
+                  </>
+                )}
+                {compType === "team" && (
+                  <>
+                    <div className="flex justify-between py-1 border-b border-slate-900">
+                      <span className="text-slate-400">Total WWCD:</span>
+                      <span className="text-slate-200 font-extrabold">{(obj1 as any).wwcd} vs {(obj2 as any).wwcd}</span>
+                    </div>
+                    <div className="flex justify-between py-1 border-b border-slate-900">
+                      <span className="text-slate-400">Total Top 4:</span>
+                      <span className="text-slate-200 font-extrabold">{(obj1 as any).top4} vs {(obj2 as any).top4}</span>
+                    </div>
+                    <div className="flex justify-between py-1">
+                      <span className="text-slate-400">Total Points:</span>
+                      <span className="text-slate-200 font-extrabold">{(obj1 as any).totalPointsSum} vs {(obj2 as any).totalPointsSum}</span>
                     </div>
                   </>
                 )}

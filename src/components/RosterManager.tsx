@@ -183,17 +183,23 @@ export const RosterManager: React.FC<RosterManagerProps> = ({
 
   // Team abbreviations (e.g. "Bigetron by Vitality" -> "BTR") are kept per-league on the
   // tournament preset itself, since teams here are just grouped by name string with no
-  // dedicated "team" entity to attach the field to.
-  const teamAbbrMap: Record<string, string> = React.useMemo(() => {
-    const preset = tournamentsList.find((t: any) => t.name === selectedLeague);
+  // dedicated "team" entity to attach the field to. Set from the Add/Edit Player form (at
+  // the point a team is actually being entered), not bolted on afterward.
+  const getTeamAbbrMap = React.useCallback((leagueName: string): Record<string, string> => {
+    const preset = tournamentsList.find((t: any) => t.name === leagueName);
     return (preset && preset.teamAbbreviations) || {};
-  }, [tournamentsList, selectedLeague]);
+  }, [tournamentsList]);
 
-  const handleTeamAbbrChange = (teamName: string, abbr: string) => {
-    if (!onUpdateTournaments) return;
+  const teamAbbrMap: Record<string, string> = React.useMemo(
+    () => getTeamAbbrMap(selectedLeague),
+    [getTeamAbbrMap, selectedLeague]
+  );
+
+  const handleTeamAbbrChange = (leagueName: string, teamName: string, abbr: string) => {
+    if (!onUpdateTournaments || !teamName.trim()) return;
     const trimmed = abbr.trim().toUpperCase();
     const updated = tournamentsList.map((t: any) => {
-      if (t.name !== selectedLeague) return t;
+      if (t.name !== leagueName) return t;
       const nextAbbrs = { ...(t.teamAbbreviations || {}) };
       if (trimmed) {
         nextAbbrs[teamName] = trimmed;
@@ -204,6 +210,9 @@ export const RosterManager: React.FC<RosterManagerProps> = ({
     });
     onUpdateTournaments(updated);
   };
+
+  // Team ABBR input, live in the Add/Edit Player form
+  const [abbrInput, setAbbrInput] = useState("");
 
   const handleOpenAddForm = () => {
     if (!actionPasswordVerified) {
@@ -224,6 +233,7 @@ export const RosterManager: React.FC<RosterManagerProps> = ({
       team: "Netral",
       league: selectedLeague
     });
+    setAbbrInput("");
     setIsFormOpen(true);
   };
 
@@ -244,6 +254,7 @@ export const RosterManager: React.FC<RosterManagerProps> = ({
     setUseCustomTeam(!inList && !!player.team);
 
     setForm({ ...player });
+    setAbbrInput(getTeamAbbrMap(player.league)[(player.team || "").toUpperCase().trim()] || "");
     setIsFormOpen(true);
   };
 
@@ -288,6 +299,7 @@ export const RosterManager: React.FC<RosterManagerProps> = ({
           team: "Netral",
           league: selectedLeague
         });
+        setAbbrInput("");
         setIsFormOpen(true);
       }
     } else {
@@ -300,6 +312,9 @@ export const RosterManager: React.FC<RosterManagerProps> = ({
     if (!form.name.trim()) return;
     try {
       await onSavePlayer(form);
+      if (form.team.trim()) {
+        handleTeamAbbrChange(form.league, form.team.toUpperCase().trim(), abbrInput);
+      }
       setIsFormOpen(false);
       setEditingPlayer(null);
     } catch (err: any) {
@@ -461,6 +476,7 @@ export const RosterManager: React.FC<RosterManagerProps> = ({
                           setForm(prev => ({ ...prev, team: "" }));
                         } else {
                           setForm(prev => ({ ...prev, team: e.target.value }));
+                          setAbbrInput(getTeamAbbrMap(form.league)[e.target.value.toUpperCase().trim()] || "");
                         }
                       }}
                       className={`flex-1 rounded-lg p-2.5 text-sm focus:outline-none border focus:ring-1 focus:ring-amber-500 cursor-pointer ${isDarkMode ? "bg-slate-900 border-slate-800 text-slate-100" : "bg-slate-50 border-slate-200 text-slate-900"}`}
@@ -471,6 +487,19 @@ export const RosterManager: React.FC<RosterManagerProps> = ({
                       ))}
                       <option value="__custom__">✍️ Ketik Manual...</option>
                     </select>
+                  </div>
+                )}
+                {form.team.trim() && (
+                  <div className="flex items-center gap-2 pt-1">
+                    <span className="text-[9px] text-slate-500 uppercase font-bold shrink-0">ABBR Tim:</span>
+                    <input
+                      type="text"
+                      value={abbrInput}
+                      onChange={(e) => setAbbrInput(e.target.value)}
+                      maxLength={6}
+                      placeholder="mis. BTR"
+                      className={`w-24 rounded-lg p-1.5 text-xs uppercase font-bold focus:outline-none border focus:ring-1 focus:ring-amber-500 ${isDarkMode ? "bg-slate-900 border-slate-800 text-amber-500" : "bg-slate-50 border-slate-200 text-amber-600"}`}
+                    />
                   </div>
                 )}
               </div>
@@ -498,6 +527,7 @@ export const RosterManager: React.FC<RosterManagerProps> = ({
                     const newLeague = e.target.value;
                     setForm(prev => ({ ...prev, league: newLeague, team: "Netral" }));
                     setUseCustomTeam(false);
+                    setAbbrInput("");
                   }}
                   className={`w-full rounded-lg p-2.5 text-sm focus:outline-none border focus:ring-1 focus:ring-amber-500 cursor-pointer ${isDarkMode ? "bg-slate-900 border-slate-800 text-slate-100" : "bg-slate-50 border-slate-200 text-slate-900"}`}
                   required
@@ -573,23 +603,11 @@ export const RosterManager: React.FC<RosterManagerProps> = ({
                     <h3 className={`text-sm font-extrabold uppercase ${isDarkMode ? "text-slate-200" : "text-slate-800"}`}>
                       {teamName}
                     </h3>
-                    {actionPasswordVerified ? (
-                      <input
-                        type="text"
-                        value={teamAbbrMap[teamName] || ""}
-                        onChange={(e) => handleTeamAbbrChange(teamName, e.target.value)}
-                        placeholder="ABBR"
-                        maxLength={6}
-                        title="Singkatan tim (ABBR)"
-                        className={`w-16 text-center px-2 py-0.5 rounded-full text-[9px] font-black uppercase border focus:outline-none focus:ring-1 focus:ring-amber-500 ${
-                          isDarkMode ? "bg-slate-950/60 border-slate-800 text-amber-500" : "bg-amber-50 border-amber-200 text-amber-600"
-                        }`}
-                      />
-                    ) : teamAbbrMap[teamName] ? (
+                    {teamAbbrMap[teamName] && (
                       <span className="text-[9px] px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-500 border border-amber-500/20 font-black uppercase">
                         {teamAbbrMap[teamName]}
                       </span>
-                    ) : null}
+                    )}
                     <span className="text-[9px] px-2 py-0.5 rounded-full bg-slate-950/40 text-slate-500 border border-slate-900/40 font-bold">
                       {teamPlayers.length} Members
                     </span>

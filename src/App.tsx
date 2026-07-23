@@ -48,6 +48,21 @@ CREATE TABLE IF NOT EXISTS roster (
   updated_at timestamp with time zone
 );
 
+-- Reclaim deleted IDs: after deleting the highest-numbered row, the next insert reuses that ID
+-- instead of skipping ahead (Postgres identity columns never do this on their own). Called by the
+-- app right after every delete on these tables - harmless no-op if the deleted row wasn't the max.
+CREATE OR REPLACE FUNCTION reset_matches_id_seq() RETURNS void AS $$
+BEGIN
+  PERFORM setval(pg_get_serial_sequence('matches', 'id'), COALESCE((SELECT MAX(id) FROM matches), 0) + 1, false);
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION reset_roster_id_seq() RETURNS void AS $$
+BEGIN
+  PERFORM setval(pg_get_serial_sequence('roster', 'id'), COALESCE((SELECT MAX(id) FROM roster), 0) + 1, false);
+END;
+$$ LANGUAGE plpgsql;
+
 CREATE TABLE IF NOT EXISTS tournaments (
   id text PRIMARY KEY,
   data jsonb NOT NULL,

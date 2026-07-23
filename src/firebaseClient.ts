@@ -175,6 +175,12 @@ export const clientDb = {
   deleteMatch: async (id: string): Promise<void> => {
     const { error } = await getBrowserSupabase().from("matches").delete().eq("id", id);
     if (error) throw error;
+    // Reclaim the ID if it was the highest one - lets the next insert reuse it instead of
+    // leaving a permanent gap. Best-effort: an old database without this SQL function
+    // shouldn't block the delete itself from succeeding.
+    try {
+      await getBrowserSupabase().rpc("reset_matches_id_seq");
+    } catch (e) {}
   },
 
   getRoster: async (): Promise<any[]> => {
@@ -201,6 +207,10 @@ export const clientDb = {
   deleteRosterPlayer: async (id: string): Promise<void> => {
     const { error } = await getBrowserSupabase().from("roster").delete().eq("id", id);
     if (error) throw error;
+    // Reclaim the ID if it was the highest one - see deleteMatch for the same reasoning.
+    try {
+      await getBrowserSupabase().rpc("reset_roster_id_seq");
+    } catch (e) {}
   },
 
   getTournaments: async (): Promise<any[]> => {

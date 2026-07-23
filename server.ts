@@ -264,6 +264,11 @@ app.delete("/api/matches/:id", checkAdminAuth, async (req, res) => {
   try {
     const { error } = await getSupabase().from("matches").delete().eq("id", req.params.id);
     if (error) throw error;
+    // Reclaim the ID if it was the highest one, so the next insert reuses it instead of leaving
+    // a permanent gap. Best-effort: an old database without this SQL function shouldn't fail the delete.
+    try {
+      await getSupabase().rpc("reset_matches_id_seq");
+    } catch (e) {}
     res.json({ success: true });
   } catch (error: any) {
     console.error("Error in DELETE /api/matches:", error);
@@ -347,6 +352,10 @@ app.delete("/api/roster/:id", async (req, res) => {
 
     const { error } = await getSupabase().from("roster").delete().eq("id", req.params.id);
     if (error) throw error;
+    // Reclaim the ID if it was the highest one - see the matches delete route for the same reasoning.
+    try {
+      await getSupabase().rpc("reset_roster_id_seq");
+    } catch (e) {}
     res.json({ success: true });
   } catch (error: any) {
     console.error("Error in DELETE /api/roster:", error);
