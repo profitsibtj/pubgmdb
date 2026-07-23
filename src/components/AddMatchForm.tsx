@@ -1066,32 +1066,6 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
                     )}
                   </div>
 
-                  {/* Player Stats Granularity: opt-in per tournament, day and week are independent */}
-                  <div className="bg-slate-950/20 p-4 rounded-xl border border-slate-850/60 space-y-2">
-                    <label className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider block">GRANULARITAS STATISTIK PEMAIN</label>
-                    <div className="flex flex-wrap gap-4">
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={activeTournament?.playerStatsDayEnabled !== false}
-                          onChange={(e) => updateActiveTournament({ playerStatsDayEnabled: e.target.checked })}
-                          className="w-4 h-4 accent-amber-500 cursor-pointer shrink-0"
-                        />
-                        <span className="text-[10px] font-mono font-bold text-slate-300 uppercase">Statistik Pemain Per Hari</span>
-                      </label>
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={!!activeTournament?.playerStatsWeekEnabled}
-                          onChange={(e) => updateActiveTournament({ playerStatsWeekEnabled: e.target.checked })}
-                          className="w-4 h-4 accent-amber-500 cursor-pointer shrink-0"
-                        />
-                        <span className="text-[10px] font-mono font-bold text-slate-300 uppercase">Statistik Pemain Per Minggu</span>
-                      </label>
-                    </div>
-                    <p className="text-[9px] text-slate-500 normal-case">Keduanya bisa aktif bersamaan, salah satu saja, atau dimatikan — tidak setiap turnamen punya data per hari maupun per minggu.</p>
-                  </div>
-
                   {/* Week Selector for 20 and 24 formats */}
                   {(activeTournament?.format === "20" || activeTournament?.format === "24") && (
                     <div className="flex flex-col sm:flex-row sm:items-center gap-3 bg-slate-950/25 p-3.5 rounded-xl border border-slate-850/60 text-xs">

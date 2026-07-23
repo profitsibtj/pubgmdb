@@ -999,6 +999,7 @@ export default function App() {
                   onSaveMatch={handleSaveMatch}
                   isDarkMode={isDarkMode}
                   tournaments={tournaments}
+                  onUpdateTournaments={handleUpdateTournaments}
                 />
               ) : (
                 <AddMatchForm

@@ -13,6 +13,7 @@ interface PlayerInputPanelProps {
   onSaveMatch: (match: Match) => Promise<void>;
   isDarkMode: boolean;
   tournaments?: any[];
+  onUpdateTournaments?: (updatedTournaments: any[]) => void;
 }
 
 interface ColumnConfig {
@@ -32,7 +33,8 @@ export const PlayerInputPanel: React.FC<PlayerInputPanelProps> = ({
   roster,
   onSaveMatch,
   isDarkMode,
-  tournaments
+  tournaments,
+  onUpdateTournaments
 }) => {
   // 1. Tournament Selection - Strictly synchronized with non-daily matches
   const [selectedLeague, setSelectedLeague] = useState<string>("");
@@ -83,6 +85,14 @@ export const PlayerInputPanel: React.FC<PlayerInputPanelProps> = ({
   // Missing config defaults to day-only, matching every tournament's behavior before this setting existed.
   const dayStatsEnabled = selectedTournamentPreset ? selectedTournamentPreset.playerStatsDayEnabled !== false : true;
   const weekStatsEnabled = !!selectedTournamentPreset?.playerStatsWeekEnabled;
+
+  // Lives here (not in Input Match Data) since it's specifically about how player stats are
+  // sourced/entered - e.g. some tournaments only publish player stats weekly, never per day.
+  const handleTogglePlayerStatsGranularity = (field: "playerStatsDayEnabled" | "playerStatsWeekEnabled", value: boolean) => {
+    if (!tournaments || !selectedTournamentPreset || !onUpdateTournaments) return;
+    const updated = tournaments.map((t: any) => t.id === selectedTournamentPreset.id ? { ...t, [field]: value } : t);
+    onUpdateTournaments(updated);
+  };
 
   const [statsMode, setStatsMode] = useState<"day" | "week">("day");
 
@@ -614,6 +624,35 @@ export const PlayerInputPanel: React.FC<PlayerInputPanelProps> = ({
                 </div>
               )}
             </div>
+          </div>
+        )}
+
+        {/* Player Stats Granularity - lives here since it's specifically about how this
+            tournament's player stats are sourced (some organizers only publish weekly, never daily) */}
+        {selectedTournamentPreset && (
+          <div className={`p-3.5 rounded-xl border space-y-2 ${isDarkMode ? "bg-slate-950/40 border-slate-850" : "bg-slate-50 border-slate-200"}`}>
+            <label className="text-[10px] text-slate-400 font-bold uppercase block">Sumber Data Statistik Pemain Turnamen Ini:</label>
+            <div className="flex flex-wrap gap-4">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={dayStatsEnabled}
+                  onChange={(e) => handleTogglePlayerStatsGranularity("playerStatsDayEnabled", e.target.checked)}
+                  className="w-4 h-4 accent-amber-500 cursor-pointer shrink-0"
+                />
+                <span className="text-[10px] font-mono font-bold text-slate-300 uppercase">Per Hari</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={weekStatsEnabled}
+                  onChange={(e) => handleTogglePlayerStatsGranularity("playerStatsWeekEnabled", e.target.checked)}
+                  className="w-4 h-4 accent-amber-500 cursor-pointer shrink-0"
+                />
+                <span className="text-[10px] font-mono font-bold text-slate-300 uppercase">Per Minggu</span>
+              </label>
+            </div>
+            <p className="text-[9px] text-slate-500 normal-case">Aktifkan salah satu atau keduanya sesuai data yang diberikan event organizer untuk turnamen ini.</p>
           </div>
         )}
       </div>
