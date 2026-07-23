@@ -1,9 +1,9 @@
 import React, { useState } from "react";
 import { Match, Team } from "../types";
-import { calculatePlacementPoints } from "../utils";
+import { calculatePlacementPoints, calculateLeagueRankStandings } from "../utils";
 import {
   Plus, Trash2, RefreshCw, AlertTriangle, Save, GripVertical, Layers,
-  ChevronUp, ChevronDown
+  ChevronUp, ChevronDown, X
 } from "lucide-react";
 
 interface AddMatchFormProps {
@@ -11,6 +11,7 @@ interface AddMatchFormProps {
   onClose: () => void;
   isDarkMode: boolean;
   editingMatch?: Match | null;
+  matches?: Match[];
   tournaments?: any[];
   onUpdateTournaments?: (updatedTournaments: any[]) => void;
 }
@@ -20,6 +21,7 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
   onClose,
   isDarkMode,
   editingMatch,
+  matches = [],
   tournaments: passedTournaments,
   onUpdateTournaments
 }) => {
@@ -93,6 +95,11 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
     groupCText_w3?: string;
     groupDText_w3?: string;
     groupEText_w3?: string;
+    // League Rank Points: not every tournament uses this, so it's opt-in per tournament.
+    // Converts each team's weekly rank (based on that week's total points) into "League Points",
+    // accumulated across weeks separately from raw match totals. leagueRankPointsTable[i] = points for rank i+1.
+    leagueRankPointsEnabled?: boolean;
+    leagueRankPointsTable?: number[];
   }
 
   const [tournaments, setTournaments] = useState<TournamentPreset[]>(() => {
@@ -493,6 +500,37 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
     setTimeout(() => setSuccessMsg(""), 2500);
   };
 
+  // Seed each team's Bonus Point from their accumulated League Rank Points (regular season),
+  // for use going into a Grand Final match. Matches teams by name (case-insensitive).
+  const handleFillBonusFromLeaguePoints = () => {
+    if (!activeTournament?.leagueRankPointsEnabled) return;
+    const leagueStandings = calculateLeagueRankStandings(
+      matches,
+      meta.league.trim(),
+      activeTournament.leagueRankPointsTable || [],
+      activeTournament.tiebreaker || "WWCD-PlacementPoint-Kill"
+    );
+    const pointsByTeam: Record<string, number> = {};
+    leagueStandings.forEach(s => {
+      pointsByTeam[s.team.toLowerCase().trim()] = s.totalLeaguePoints;
+    });
+
+    setTeams(prev => prev.map(t => {
+      const leaguePoints = pointsByTeam[(t.name || "").toLowerCase().trim()];
+      if (leaguePoints === undefined) return t;
+      const elims = Number(t.eliminationPoints) || 0;
+      const placementPoints = calculatePlacementPoints(t.placement);
+      return {
+        ...t,
+        bonusPoints: leaguePoints,
+        totalPoints: placementPoints + elims + leaguePoints
+      };
+    }));
+
+    setSuccessMsg("Bonus Point berhasil diisi dari League Rank Points!");
+    setTimeout(() => setSuccessMsg(""), 2500);
+  };
+
 
   // Drag and Drop State
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
@@ -825,22 +863,35 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
         </div>
 
         {/* GRAND FINAL FLAG */}
-        <label className={`flex items-center gap-2.5 p-3 rounded-xl border cursor-pointer transition-all ${
+        <div className={`flex flex-wrap items-center gap-2.5 p-3 rounded-xl border transition-all ${
           isGrandFinal
             ? "bg-amber-500/10 border-amber-500/30"
             : isDarkMode ? "bg-slate-950/40 border-slate-850" : "bg-slate-50 border-slate-200"
         }`}>
-          <input
-            type="checkbox"
-            checked={isGrandFinal}
-            onChange={(e) => setIsGrandFinal(e.target.checked)}
-            className="w-4 h-4 accent-amber-500 cursor-pointer"
-          />
-          <span className={`text-[11px] font-mono font-bold uppercase ${isGrandFinal ? "text-amber-500" : isDarkMode ? "text-slate-300" : "text-slate-600"}`}>
-            Tandai sebagai Match Grand Final
-          </span>
-          <span className="text-[9px] text-slate-500 normal-case">(dipisahkan dari klasemen overall liga yang sama di Standings)</span>
-        </label>
+          <label className="flex items-center gap-2.5 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={isGrandFinal}
+              onChange={(e) => setIsGrandFinal(e.target.checked)}
+              className="w-4 h-4 accent-amber-500 cursor-pointer"
+            />
+            <span className={`text-[11px] font-mono font-bold uppercase ${isGrandFinal ? "text-amber-500" : isDarkMode ? "text-slate-300" : "text-slate-600"}`}>
+              Tandai sebagai Match Grand Final
+            </span>
+            <span className="text-[9px] text-slate-500 normal-case">(dipisahkan dari klasemen overall liga yang sama di Standings)</span>
+          </label>
+
+          {isGrandFinal && activeTournament?.leagueRankPointsEnabled && (
+            <button
+              type="button"
+              onClick={handleFillBonusFromLeaguePoints}
+              className="ml-auto px-3 py-1.5 bg-teal-500/10 hover:bg-teal-500/20 text-teal-400 rounded-lg border border-teal-500/20 text-[10px] font-bold font-mono transition-all cursor-pointer"
+              title="Isi Bonus Point tiap tim dari akumulasi League Rank Points regular season"
+            >
+              Isi Bonus Point dari League Points
+            </button>
+          )}
+        </div>
 
         {/* MANUAL ENTRY LAYOUT */}
         <div className="space-y-6 animate-fadeIn">
@@ -950,6 +1001,65 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
                         <option value="WWCD-Kill-PlacementPoint">WWCD - Kill - Placement</option>
                       </select>
                     </div>
+                  </div>
+
+                  {/* League Rank Points: opt-in per tournament, not every league uses this */}
+                  <div className="bg-slate-950/20 p-4 rounded-xl border border-slate-850/60 space-y-3">
+                    <label className="flex items-center gap-2.5 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={!!activeTournament?.leagueRankPointsEnabled}
+                        onChange={(e) => updateActiveTournament({ leagueRankPointsEnabled: e.target.checked })}
+                        className="w-4 h-4 accent-amber-500 cursor-pointer shrink-0"
+                      />
+                      <span className="text-[10px] font-mono font-bold text-amber-500 uppercase tracking-wider">Aktifkan League Rank Points</span>
+                      <span className="text-[9px] text-slate-500 normal-case">(ranking mingguan dikonversi jadi poin liga terpisah — bisa dipakai sebagai Bonus Point saat Grand Final)</span>
+                    </label>
+
+                    {activeTournament?.leagueRankPointsEnabled && (
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider block">TABEL POIN (RANK MINGGUAN → POIN LIGA)</label>
+                        <div className="flex flex-wrap gap-2">
+                          {(activeTournament.leagueRankPointsTable || []).map((pts, idx) => (
+                            <div key={idx} className={`flex items-center gap-1 rounded-lg px-2 py-1 border ${isDarkMode ? "bg-slate-900/60 border-slate-800" : "bg-white border-slate-300"}`}>
+                              <span className="text-[9px] text-slate-500 font-bold">#{idx + 1}</span>
+                              <input
+                                type="number"
+                                value={pts}
+                                onChange={(e) => {
+                                  const table = [...(activeTournament.leagueRankPointsTable || [])];
+                                  table[idx] = Number(e.target.value) || 0;
+                                  updateActiveTournament({ leagueRankPointsTable: table });
+                                }}
+                                className={`w-12 bg-transparent text-center text-xs font-bold focus:outline-none ${isDarkMode ? "text-amber-500" : "text-amber-600"}`}
+                              />
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const table = (activeTournament.leagueRankPointsTable || []).filter((_, i) => i !== idx);
+                                  updateActiveTournament({ leagueRankPointsTable: table });
+                                }}
+                                className="text-slate-600 hover:text-red-400 cursor-pointer"
+                                title="Hapus rank ini"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            </div>
+                          ))}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const table = [...(activeTournament.leagueRankPointsTable || []), 0];
+                              updateActiveTournament({ leagueRankPointsTable: table });
+                            }}
+                            className="px-2.5 py-1 bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 rounded-lg text-[10px] font-bold flex items-center gap-1 cursor-pointer border border-amber-500/20"
+                          >
+                            <Plus className="w-3 h-3" />
+                            Tambah Rank
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   {/* Week Selector for 20 and 24 formats */}

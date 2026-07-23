@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from "react";
 import { Match, Team } from "../types";
-import { 
+import { calculateLeagueRankStandings } from "../utils";
+import {
   Trophy, Star, Calendar, Search, BarChart2
 } from "lucide-react";
 
@@ -19,9 +20,11 @@ export const TournamentStandings: React.FC<TournamentStandingsProps> = ({ matche
   const [selectedTeamDetail, setSelectedTeamDetail] = useState<string | null>(null);
 
   // Overall = regular-season standings (everything except Grand Final matches).
-  // Final = only matches explicitly tagged as Grand Final. Kept as two separate,
-  // non-overlapping views within the same league so a Final doesn't skew the overall table.
-  const [viewMode, setViewMode] = useState<"overall" | "final">("overall");
+  // League = League Rank Points (weekly rank converted to points, accumulated separately) - only
+  // available when the tournament preset has this enabled, since not every league uses it.
+  // Final = only matches explicitly tagged as Grand Final. All three stay non-overlapping views
+  // within the same league so a Final (or the League Points meta-ranking) doesn't skew the overall table.
+  const [viewMode, setViewMode] = useState<"overall" | "league" | "final">("overall");
 
   const matchesStageMatch = (match: Match): boolean => {
     return viewMode === "final" ? !!match.isGrandFinal : !match.isGrandFinal;
@@ -77,6 +80,28 @@ export const TournamentStandings: React.FC<TournamentStandingsProps> = ({ matche
   }, [selectedTournament, tournamentPresets]);
 
   const activeTiebreaker = currentPreset?.tiebreaker || "WWCD-PlacementPoint-Kill";
+
+  // League Rank Points standings: only computed/shown when this tournament preset has it enabled
+  const leagueRankStandings = useMemo(() => {
+    if (!selectedTournament || !currentPreset?.leagueRankPointsEnabled) return [];
+    return calculateLeagueRankStandings(
+      matches,
+      selectedTournament,
+      currentPreset.leagueRankPointsTable || [],
+      activeTiebreaker
+    );
+  }, [matches, selectedTournament, currentPreset, activeTiebreaker]);
+
+  // Distinct weeks present across the League Points standings, sorted, for the column headers
+  const leagueRankWeeks = useMemo(() => {
+    const unique = new Set<string>();
+    leagueRankStandings.forEach(s => s.weeklyPoints.forEach(w => unique.add(w.week)));
+    return Array.from(unique).sort((a, b) => {
+      const na = parseInt(a.replace(/\D/g, ""), 10);
+      const nb = parseInt(b.replace(/\D/g, ""), 10);
+      return na - nb;
+    });
+  }, [leagueRankStandings]);
 
   // Extract all unique tournaments (leagues) from matches
   const tournamentsList = useMemo(() => {
@@ -345,6 +370,19 @@ export const TournamentStandings: React.FC<TournamentStandingsProps> = ({ matche
               >
                 Overall
               </button>
+              {currentPreset?.leagueRankPointsEnabled && (
+                <button
+                  type="button"
+                  onClick={() => setViewMode("league")}
+                  className={`px-4 py-1.5 rounded-xl text-[10px] font-black font-mono uppercase tracking-wider transition-all cursor-pointer border ${
+                    viewMode === "league"
+                      ? "bg-amber-500 text-slate-950 border-amber-500"
+                      : isDarkMode ? "bg-slate-950 text-slate-400 border-slate-800 hover:text-white" : "bg-white text-slate-600 border-slate-200 hover:text-slate-900"
+                  }`}
+                >
+                  League Points
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => setViewMode("final")}
@@ -373,7 +411,7 @@ export const TournamentStandings: React.FC<TournamentStandingsProps> = ({ matche
                 />
               </div>
 
-              {weeksList.length > 0 && (
+              {viewMode !== "league" && weeksList.length > 0 && (
                 <div className="flex items-center gap-1.5">
                   <span className="text-slate-500 text-[9px] font-bold uppercase shrink-0">Filter Week:</span>
                   <select
@@ -390,39 +428,108 @@ export const TournamentStandings: React.FC<TournamentStandingsProps> = ({ matche
                 </div>
               )}
 
-              <div className="flex items-center gap-1.5">
-                <span className="text-slate-500 text-[9px] font-bold uppercase shrink-0">Filter Day:</span>
-                <select
-                  value={selectedDayFilter}
-                  onChange={(e) => setSelectedDayFilter(e.target.value)}
-                  className={`p-2 rounded-xl border font-bold cursor-pointer text-xs focus:ring-1 focus:ring-amber-500 outline-none ${
-                    isDarkMode ? "bg-slate-950 border-slate-850 text-white" : "bg-white border-slate-300 text-slate-900"
-                  }`}
-                >
-                  {daysList.map(d => (
-                    <option key={d} value={d}>{d === "ALL" ? "Semua Hari (All)" : d}</option>
-                  ))}
-                </select>
-              </div>
+              {viewMode !== "league" && (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-slate-500 text-[9px] font-bold uppercase shrink-0">Filter Day:</span>
+                  <select
+                    value={selectedDayFilter}
+                    onChange={(e) => setSelectedDayFilter(e.target.value)}
+                    className={`p-2 rounded-xl border font-bold cursor-pointer text-xs focus:ring-1 focus:ring-amber-500 outline-none ${
+                      isDarkMode ? "bg-slate-950 border-slate-850 text-white" : "bg-white border-slate-300 text-slate-900"
+                    }`}
+                  >
+                    {daysList.map(d => (
+                      <option key={d} value={d}>{d === "ALL" ? "Semua Hari (All)" : d}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
-              <div className="flex items-center gap-1.5">
-                <span className="text-slate-500 text-[9px] font-bold uppercase shrink-0">Filter Map:</span>
-                <select
-                  value={selectedMapFilter}
-                  onChange={(e) => setSelectedMapFilter(e.target.value)}
-                  className={`p-2 rounded-xl border font-bold cursor-pointer text-xs focus:ring-1 focus:ring-amber-500 outline-none ${
-                    isDarkMode ? "bg-slate-950 border-slate-850 text-white" : "bg-white border-slate-300 text-slate-900"
-                  }`}
-                >
-                  {mapsList.map(m => (
-                    <option key={m} value={m}>{m === "ALL" ? "Semua Map" : m}</option>
-                  ))}
-                </select>
-              </div>
+              {viewMode !== "league" && (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-slate-500 text-[9px] font-bold uppercase shrink-0">Filter Map:</span>
+                  <select
+                    value={selectedMapFilter}
+                    onChange={(e) => setSelectedMapFilter(e.target.value)}
+                    className={`p-2 rounded-xl border font-bold cursor-pointer text-xs focus:ring-1 focus:ring-amber-500 outline-none ${
+                      isDarkMode ? "bg-slate-950 border-slate-850 text-white" : "bg-white border-slate-300 text-slate-900"
+                    }`}
+                  >
+                    {mapsList.map(m => (
+                      <option key={m} value={m}>{m === "ALL" ? "Semua Map" : m}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
             </div>
 
             {/* Standings Table */}
-            {filteredStandings.length === 0 ? (
+            {viewMode === "league" ? (
+              leagueRankStandings.length === 0 ? (
+                <div className={`text-center py-12 border border-dashed rounded-2xl text-slate-500 ${isDarkMode ? "border-slate-850 bg-slate-950/20" : "border-slate-200"}`}>
+                  Belum ada data League Rank Points untuk turnamen "{selectedTournament}".
+                </div>
+              ) : (
+                <div className={`overflow-x-auto rounded-xl border ${
+                  isDarkMode ? "border-slate-800/40 bg-slate-950/10" : "border-slate-200 bg-white"
+                }`}>
+                  <table className="w-full text-left font-mono border-collapse">
+                    <thead>
+                      <tr className={`text-[10px] uppercase tracking-wider font-bold border-b ${
+                        isDarkMode ? "bg-slate-950 text-slate-400 border-slate-800" : "bg-slate-100 text-slate-600 border-slate-200"
+                      }`}>
+                        <th className="py-3 px-3 text-center w-12">R</th>
+                        <th className="py-3 px-4 text-left">Nama Squad</th>
+                        {leagueRankWeeks.map(w => (
+                          <th key={w} className="py-3 px-3 text-center w-20">{w}</th>
+                        ))}
+                        <th className="py-3 px-4 text-center text-amber-500 bg-amber-500/5 font-black w-28">LEAGUE POINTS</th>
+                      </tr>
+                    </thead>
+                    <tbody className={`divide-y ${isDarkMode ? "divide-slate-850/30" : "divide-slate-100"}`}>
+                      {leagueRankStandings
+                        .filter(s => teamSearchTerm === "All" || !teamSearchTerm.trim() || s.team.toLowerCase().includes(teamSearchTerm.toLowerCase()))
+                        .map((s, idx) => {
+                          const rank = idx + 1;
+                          return (
+                            <tr key={s.team} className={isDarkMode ? "text-slate-300" : "text-slate-800"}>
+                              <td className="py-3 px-3 text-center w-12">
+                                <span className={`w-6 h-6 rounded-md inline-flex items-center justify-center font-extrabold text-[10px] ${
+                                  rank === 1
+                                    ? "bg-amber-500 text-slate-950"
+                                    : rank === 2
+                                      ? "bg-slate-300 text-slate-950"
+                                      : rank === 3
+                                        ? "bg-amber-700 text-slate-100"
+                                        : isDarkMode ? "bg-slate-800 text-slate-400" : "bg-slate-100 text-slate-500"
+                                }`}>
+                                  {rank}
+                                </span>
+                              </td>
+                              <td className="py-3 px-4 font-bold uppercase tracking-tight">{s.team}</td>
+                              {leagueRankWeeks.map(w => {
+                                const entry = s.weeklyPoints.find(wp => wp.week === w);
+                                return (
+                                  <td key={w} className={`py-3 px-3 text-center ${isDarkMode ? "text-slate-400" : "text-slate-600"}`}>
+                                    {entry ? (
+                                      <span title={`Rank #${entry.rank} minggu itu`}>{entry.points}</span>
+                                    ) : (
+                                      <span className="text-slate-600">-</span>
+                                    )}
+                                  </td>
+                                );
+                              })}
+                              <td className="py-3 px-4 text-center text-sm font-black bg-amber-500/5 text-amber-500 w-28">
+                                {s.totalLeaguePoints}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                    </tbody>
+                  </table>
+                </div>
+              )
+            ) : filteredStandings.length === 0 ? (
               <div className={`text-center py-12 border border-dashed rounded-2xl text-slate-500 ${isDarkMode ? "border-slate-850 bg-slate-950/20" : "border-slate-200"}`}>
                 Tidak ada log klasemen {viewMode === "final" ? "Grand Final " : ""}untuk turnamen "{selectedTournament}" dengan filter saat ini.
               </div>
