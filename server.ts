@@ -15,8 +15,12 @@ const mapMatchFromDb = (row: any) => {
     totalGame: row.total_game || "1",
     gameNo: row.game_no || "1",
     map: row.map || "Erangel",
+    patch: row.patch || "",
     liveLink: row.live_link || "",
     teams: row.teams || [],
+    isDailyStats: !!row.is_daily_stats,
+    isGrandFinal: !!row.is_grand_final,
+    customColumns: row.custom_columns || undefined,
     createdAt: row.created_at || "",
     updatedAt: row.updated_at || "",
   };
@@ -30,8 +34,12 @@ const mapMatchToDb = (data: any) => {
     total_game: data.totalGame ? String(data.totalGame) : null,
     game_no: data.gameNo ? String(data.gameNo) : null,
     map: data.map || null,
+    patch: data.patch || null,
     live_link: data.liveLink || null,
     teams: data.teams || null,
+    is_daily_stats: !!data.isDailyStats,
+    is_grand_final: !!data.isGrandFinal,
+    custom_columns: data.customColumns || null,
   };
 };
 

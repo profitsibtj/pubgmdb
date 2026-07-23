@@ -44,4 +44,5 @@ export interface Match {
   teams: Team[]; // Dynamic list of competing squads
   isDailyStats?: boolean; // Flag to filter daily accumulated stats
   isGrandFinal?: boolean; // Marks this match as part of the Grand Final stage, kept separate from the overall/regular-season standings for the same league
+  customColumns?: { key: string; label: string; type: "string" | "number" }[]; // Player Input Panel's per-tournament column layout for a daily/weekly stats record
 }
