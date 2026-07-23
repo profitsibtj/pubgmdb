@@ -177,11 +177,18 @@ export const PlayerInputPanel: React.FC<PlayerInputPanelProps> = ({
   const [showAddColInput, setShowAddColInput] = useState(false);
   const [newColName, setNewColName] = useState("");
 
+  // The database's real (auto-generated) id for whichever daily-stats record is currently loaded,
+  // if one already exists for this league+period. Undefined means "no existing record" - saving
+  // must then INSERT and let the database assign an id, never invent one client-side (the matches
+  // table's id column is a bigint identity column, so it can't accept an arbitrary string id).
+  const [existingRecordId, setExistingRecordId] = useState<string | undefined>(undefined);
+
   // Load existing daily stats match record if it exists
   const loadExistingDailyStats = React.useCallback(() => {
     const periodKey = statsMode === "week" ? selectedWeek : selectedDate;
     if (!selectedLeague || !periodKey) {
       setFlatPlayers([]);
+      setExistingRecordId(undefined);
       return;
     }
 
@@ -191,6 +198,8 @@ export const PlayerInputPanel: React.FC<PlayerInputPanelProps> = ({
       }
       return statsMode === "week" ? m.matchCode === dailyWeekMatchCode(selectedWeek) : m.date === selectedDate;
     });
+
+    setExistingRecordId(foundDailyMatch?.id);
 
     if (foundDailyMatch) {
       // Load custom columns config from match record if it exists, otherwise use current columns
@@ -484,11 +493,10 @@ export const PlayerInputPanel: React.FC<PlayerInputPanelProps> = ({
         };
       });
 
-      // 3. Create full daily Match document
-      const periodSlug = statsMode === "week" ? `week_${selectedWeek.replace(/\D/g, "")}` : selectedDate;
-      const docId = `daily_${finalLeagueName.toLowerCase().replace(/[^a-z0-9]/g, "_")}_${periodSlug}`;
+      // 3. Create full daily Match document. Only set id when updating an already-loaded record
+      // (a real database id) - leave it unset for a first-time save so the database assigns one.
       const dailyMatchRecord: Match = {
-        id: docId,
+        id: existingRecordId,
         league: finalLeagueName,
         date: statsMode === "week" ? selectedWeek : selectedDate,
         gameNo: "Daily Stats",
