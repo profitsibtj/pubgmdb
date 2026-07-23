@@ -1,8 +1,8 @@
 import React, { useState, useMemo, useEffect } from "react";
 import { Match } from "../types";
 import { calculatePlacementPoints } from "../utils";
-import { 
-  Search, User, Award, Grid, List, Trash2, Lock, ShieldAlert
+import {
+  Search, User, Award, Grid, List, Trash2, Lock, ShieldAlert, Pencil
 } from "lucide-react";
 
 interface PlayerStatsProps {
@@ -12,15 +12,19 @@ interface PlayerStatsProps {
   verifyActionPassword?: (password: string) => Promise<boolean>;
   onDeletePlayerStats?: (playerName: string) => Promise<void>;
   tournaments?: any[];
+  // Deep-links into the Player Input Panel to fix an already-posted record (all player stats
+  // here originate from that panel's daily/weekly stats entries, keyed by league + date/week).
+  onEditPlayerRecord?: (league: string, period: { date?: string; week?: string }) => void;
 }
 
-export const PlayerStats: React.FC<PlayerStatsProps> = ({ 
-  matches, 
+export const PlayerStats: React.FC<PlayerStatsProps> = ({
+  matches,
   isDarkMode,
   actionPasswordVerified = false,
   verifyActionPassword,
   onDeletePlayerStats,
-  tournaments
+  tournaments,
+  onEditPlayerRecord
 }) => {
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedTeam, setSelectedTeam] = useState("ALL");
@@ -39,6 +43,14 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
     isOpen: false,
     playerName: ""
   });
+
+  // Picker shown when a player's stats were posted across more than one daily/weekly record,
+  // so the admin chooses which one to jump into and fix.
+  const [editPickerModal, setEditPickerModal] = useState<{
+    isOpen: boolean;
+    playerName: string;
+    records: { league: string; date?: string; week?: string; label: string }[];
+  }>({ isOpen: false, playerName: "", records: [] });
 
   // Reset selected team whenever selected league changes
   useEffect(() => {
@@ -278,6 +290,37 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
     }
   };
 
+  // Every player stat here comes from a daily/weekly record saved in the Player Input Panel -
+  // find every such record that already lists this player, so "Edit" can deep-link right to it.
+  const getPlayerDailyRecords = (playerName: string) => {
+    const target = playerName.trim().toLowerCase();
+    const records: { league: string; date?: string; week?: string; label: string }[] = [];
+    matches.forEach(m => {
+      if (!m.isDailyStats) return;
+      const hasPlayer = (m.teams || []).some(t => (t.players || []).some(p => p.name.trim().toLowerCase() === target));
+      if (!hasPlayer) return;
+      const isWeekRecord = (m.matchCode || "").toUpperCase().startsWith("DAILY_WEEK");
+      records.push({
+        league: m.league || "",
+        date: isWeekRecord ? undefined : m.date,
+        week: isWeekRecord ? m.date : undefined,
+        label: `${m.league || "-"} • ${m.date || "-"}`
+      });
+    });
+    return records;
+  };
+
+  const handleEditClick = (playerName: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const records = getPlayerDailyRecords(playerName);
+    if (records.length === 0) return;
+    if (records.length === 1) {
+      if (onEditPlayerRecord) onEditPlayerRecord(records[0].league, { date: records[0].date, week: records[0].week });
+      return;
+    }
+    setEditPickerModal({ isOpen: true, playerName, records });
+  };
+
   const handleVerifyPass = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!verifyActionPassword || !onDeletePlayerStats) return;
@@ -487,14 +530,9 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
                           <td className="py-3 px-4 font-bold">
                             <span className="tracking-tight">{p.name}</span>
                           </td>
-                          {/* Team name with initials badge */}
+                          {/* Team name */}
                           <td className="py-3 px-4 font-semibold text-slate-300">
-                            <div className="flex items-center gap-2">
-                              <div className="w-6 h-6 rounded-full bg-amber-500/10 text-amber-500 text-[10px] font-black border border-amber-500/20 flex items-center justify-center shrink-0 uppercase">
-                                {p.teamName ? p.teamName.slice(0, 2) : "??"}
-                              </div>
-                              <span className="tracking-tight text-slate-300">{p.teamName || "-"}</span>
-                            </div>
+                            <span className="tracking-tight text-slate-300">{p.teamName || "-"}</span>
                           </td>
                           {/* Dynamic columns values */}
                           {dynamicColumns.map(col => {
@@ -524,15 +562,26 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
                           {/* Admin Actions */}
                           {actionPasswordVerified && (
                             <td className="py-3 px-4 text-center" onClick={(e) => e.stopPropagation()}>
-                              <button
-                                type="button"
-                                onClick={(e) => handleDeleteClick(p.name, e)}
-                                className="px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-700 text-white border border-red-500 font-mono font-extrabold text-[10px] tracking-wide uppercase transition-all duration-200 cursor-pointer inline-flex items-center gap-1.5 shadow-md hover:shadow-red-900/20"
-                                title="Hapus Seluruh Data Stats Player"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                                <span>Hapus Player</span>
-                              </button>
+                              <div className="inline-flex gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={(e) => handleEditClick(p.name, e)}
+                                  className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 border border-amber-400 font-mono font-extrabold text-[10px] tracking-wide uppercase transition-all duration-200 cursor-pointer inline-flex items-center gap-1.5 shadow-md"
+                                  title="Edit Data Stats Player Yang Sudah Diposting"
+                                >
+                                  <Pencil className="w-3.5 h-3.5" />
+                                  <span>Edit</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={(e) => handleDeleteClick(p.name, e)}
+                                  className="px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-700 text-white border border-red-500 font-mono font-extrabold text-[10px] tracking-wide uppercase transition-all duration-200 cursor-pointer inline-flex items-center gap-1.5 shadow-md hover:shadow-red-900/20"
+                                  title="Hapus Seluruh Data Stats Player"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                  <span>Hapus Player</span>
+                                </button>
+                              </div>
                             </td>
                           )}
                         </tr>
@@ -574,8 +623,6 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
                       </h3>
                       <div className="flex items-center gap-1.5 text-[10px] font-mono text-slate-500 mt-0.5">
                         {p.teamName && <span className="text-slate-400 font-bold">{p.teamName}</span>}
-                        <span>•</span>
-                        <span>Weapon: <strong className="text-slate-300">{p.primaryWeapon}</strong></span>
                       </div>
                     </div>
                   </div>
@@ -593,32 +640,40 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
                       <div className="text-xs font-extrabold text-slate-200 mt-1">{p.matchesCount}</div>
                     </div>
                     <div>
-                      <div className="text-[8px] text-slate-500 uppercase font-bold tracking-tight">KILLS (AVG)</div>
-                      <div className="text-xs font-extrabold text-amber-500 mt-1">{p.avgElims}</div>
-                      <div className="text-[8px] text-slate-500">Total: {p.elims}</div>
+                      <div className="text-[8px] text-slate-500 uppercase font-bold tracking-tight">KILLS</div>
+                      <div className="text-xs font-extrabold text-amber-500 mt-1">{p.elims}</div>
+                      <div className="text-[8px] text-slate-500">Avg: {p.avgElims}</div>
                     </div>
                     <div>
-                      <div className="text-[8px] text-slate-500 uppercase font-bold tracking-tight">DMG (AVG)</div>
-                      <div className="text-xs font-extrabold text-teal-400 mt-1">{p.avgDamage}</div>
-                      <div className="text-[8px] text-slate-500">Total: {p.damage}</div>
+                      <div className="text-[8px] text-slate-500 uppercase font-bold tracking-tight">DMG</div>
+                      <div className="text-xs font-extrabold text-teal-400 mt-1">{p.damage}</div>
+                      <div className="text-[8px] text-slate-500">Avg: {p.avgDamage}</div>
                     </div>
                     <div>
-                      <div className="text-[8px] text-slate-500 uppercase font-bold tracking-tight">AST (AVG)</div>
-                      <div className="text-xs font-extrabold text-indigo-400 mt-1">{p.matchesCount > 0 ? Math.round((p.assists / p.matchesCount) * 10) / 10 : 0}</div>
-                      <div className="text-[8px] text-slate-500">Total: {p.assists}</div>
+                      <div className="text-[8px] text-slate-500 uppercase font-bold tracking-tight">AST</div>
+                      <div className="text-xs font-extrabold text-indigo-400 mt-1">{p.assists}</div>
+                      <div className="text-[8px] text-slate-500">Avg: {p.matchesCount > 0 ? Math.round((p.assists / p.matchesCount) * 10) / 10 : 0}</div>
                     </div>
                   </div>
 
-                  {/* Admin Delete Action Button */}
+                  {/* Admin Actions */}
                   {actionPasswordVerified && (
-                    <div className="mt-4 pt-3 border-t border-slate-800/20 flex justify-end" onClick={(e) => e.stopPropagation()}>
+                    <div className="mt-4 pt-3 border-t border-slate-800/20 flex gap-2" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        type="button"
+                        onClick={(e) => handleEditClick(p.name, e)}
+                        className="flex-1 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 border border-amber-400 font-mono font-extrabold text-[11px] tracking-wider uppercase transition-all duration-200 cursor-pointer flex items-center justify-center gap-1.5 shadow-md"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                        <span>Edit</span>
+                      </button>
                       <button
                         type="button"
                         onClick={(e) => handleDeleteClick(p.name, e)}
-                        className="w-full py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white border border-red-500 font-mono font-extrabold text-[11px] tracking-wider uppercase transition-all duration-200 cursor-pointer flex items-center justify-center gap-1.5 shadow-md hover:shadow-red-900/30"
+                        className="flex-1 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white border border-red-500 font-mono font-extrabold text-[11px] tracking-wider uppercase transition-all duration-200 cursor-pointer flex items-center justify-center gap-1.5 shadow-md hover:shadow-red-900/30"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
-                        <span>Hapus Stats Player</span>
+                        <span>Hapus</span>
                       </button>
                     </div>
                   )}
@@ -732,6 +787,54 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
                   <span>Ya, Hapus</span>
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* EDIT RECORD PICKER MODAL (shown when a player has more than one posted record) */}
+      {editPickerModal.isOpen && (
+        <div className={`fixed inset-0 backdrop-blur-sm flex items-center justify-center z-[110] p-4 transition-colors duration-200 ${isDarkMode ? "bg-slate-950/80" : "bg-slate-900/40"}`}>
+          <div className={`w-full max-w-sm border rounded-2xl shadow-2xl overflow-hidden animate-fadeIn transition-colors duration-200 ${isDarkMode ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200 text-slate-800"}`}>
+            <div className="bg-gradient-to-r from-amber-600 to-amber-500 p-5 text-slate-950 flex flex-col items-center">
+              <div className={`p-2.5 rounded-full mb-2 ${isDarkMode ? "bg-slate-950 text-amber-400" : "bg-white/40 text-slate-950"}`}>
+                <Pencil className="w-5 h-5" />
+              </div>
+              <h3 className="text-sm font-bold tracking-tight text-center uppercase font-mono">
+                Pilih Record Untuk Diedit
+              </h3>
+              <p className="text-[9px] tracking-wider mt-0.5 opacity-90 text-center font-mono">
+                {editPickerModal.playerName} tercatat di beberapa record
+              </p>
+            </div>
+
+            <div className="p-5 space-y-2 text-xs font-mono">
+              {editPickerModal.records.map((rec, idx) => (
+                <button
+                  key={idx}
+                  type="button"
+                  onClick={() => {
+                    setEditPickerModal({ isOpen: false, playerName: "", records: [] });
+                    if (onEditPlayerRecord) onEditPlayerRecord(rec.league, { date: rec.date, week: rec.week });
+                  }}
+                  className={`w-full text-left px-3.5 py-2.5 rounded-xl border font-bold transition-all cursor-pointer flex items-center justify-between gap-2 ${
+                    isDarkMode ? "bg-slate-950 border-slate-800 text-slate-200 hover:border-amber-500/50" : "bg-slate-50 border-slate-200 text-slate-800 hover:border-amber-400"
+                  }`}
+                >
+                  <span>{rec.label}</span>
+                  <Pencil className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                </button>
+              ))}
+
+              <button
+                type="button"
+                onClick={() => setEditPickerModal({ isOpen: false, playerName: "", records: [] })}
+                className={`w-full mt-2 py-2 rounded-xl font-bold border transition-all cursor-pointer ${
+                  isDarkMode ? "border-slate-800 hover:bg-slate-800 text-slate-400" : "border-slate-200 hover:bg-slate-100 text-slate-500"
+                }`}
+              >
+                Batal
+              </button>
             </div>
           </div>
         </div>

@@ -304,6 +304,16 @@ export default function App() {
   // Edit match state
   const [editingMatch, setEditingMatch] = useState<Match | null>(null);
 
+  // Deep-link target for the Player Input Panel, set when "Edit" is clicked on an already-posted
+  // player stats record from the Player Stats tab.
+  const [playerInputTarget, setPlayerInputTarget] = useState<{ league: string; date?: string; week?: string } | null>(null);
+
+  const handleEditPlayerRecord = (league: string, period: { date?: string; week?: string }) => {
+    setPlayerInputTarget({ league, ...period });
+    setAdminSubTab("playerInput");
+    setActiveTab("admin");
+  };
+
   // Toast notifications
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null);
 
@@ -878,13 +888,14 @@ export default function App() {
 
         {/* Player Stats Dashboard tab */}
         {activeTab === "playerStats" && (
-          <PlayerStats 
-            matches={matches} 
-            isDarkMode={isDarkMode} 
+          <PlayerStats
+            matches={matches}
+            isDarkMode={isDarkMode}
             actionPasswordVerified={actionPasswordVerified}
             verifyActionPassword={verifyActionPassword}
             onDeletePlayerStats={handleDeletePlayerStats}
             tournaments={tournaments}
+            onEditPlayerRecord={handleEditPlayerRecord}
           />
         )}
 
@@ -906,6 +917,7 @@ export default function App() {
             actionPasswordVerified={actionPasswordVerified}
             setActionPasswordVerified={handleSetActionPasswordVerified}
             tournaments={tournaments}
+            onUpdateTournaments={handleUpdateTournaments}
           />
         )}
 
@@ -994,6 +1006,8 @@ export default function App() {
                   isDarkMode={isDarkMode}
                   tournaments={tournaments}
                   onUpdateTournaments={handleUpdateTournaments}
+                  presetSelection={playerInputTarget}
+                  onConsumedPresetSelection={() => setPlayerInputTarget(null)}
                 />
               ) : (
                 <AddMatchForm

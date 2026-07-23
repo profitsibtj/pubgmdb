@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import { Match, Team, Player } from "../types";
 import { RosterPlayer } from "./RosterManager";
 import { getMatchWeekLabel } from "../utils";
@@ -14,6 +14,10 @@ interface PlayerInputPanelProps {
   isDarkMode: boolean;
   tournaments?: any[];
   onUpdateTournaments?: (updatedTournaments: any[]) => void;
+  // Lets other tabs (e.g. Player Stats "Edit") deep-link straight into an already-posted
+  // league+period record here instead of the admin having to reselect it manually.
+  presetSelection?: { league: string; date?: string; week?: string } | null;
+  onConsumedPresetSelection?: () => void;
 }
 
 interface ColumnConfig {
@@ -34,7 +38,9 @@ export const PlayerInputPanel: React.FC<PlayerInputPanelProps> = ({
   onSaveMatch,
   isDarkMode,
   tournaments,
-  onUpdateTournaments
+  onUpdateTournaments,
+  presetSelection,
+  onConsumedPresetSelection
 }) => {
   // 1. Tournament Selection - Strictly synchronized with non-daily matches
   const [selectedLeague, setSelectedLeague] = useState<string>("");
@@ -74,6 +80,28 @@ export const PlayerInputPanel: React.FC<PlayerInputPanelProps> = ({
       setSelectedLeague(leagues[0]);
     }
   }, [leagues, selectedLeague]);
+
+  // Player names typed into the spreadsheet must link back to a registered Squad Roster player
+  // for this league - used both to power the name autocomplete and to validate on save.
+  const rosterNamesForLeague = useMemo(() => {
+    const set = new Set<string>();
+    (roster || []).forEach(r => {
+      if ((r.league || "").trim().toLowerCase() === selectedLeague.trim().toLowerCase()) {
+        set.add(r.name.trim().toLowerCase());
+      }
+    });
+    return set;
+  }, [roster, selectedLeague]);
+
+  const rosterNameOptions = useMemo(() => {
+    const names = new Set<string>();
+    (roster || []).forEach(r => {
+      if ((r.league || "").trim().toLowerCase() === selectedLeague.trim().toLowerCase()) {
+        names.add(r.name.trim());
+      }
+    });
+    return Array.from(names).sort();
+  }, [roster, selectedLeague]);
 
   // Look up the selected tournament's preset to see which stats granularities it supports.
   // Not every tournament tracks both - day and week are independently opt-in per tournament.
@@ -138,10 +166,35 @@ export const PlayerInputPanel: React.FC<PlayerInputPanelProps> = ({
   const [selectedDate, setSelectedDate] = useState<string>("");
   const [selectedWeek, setSelectedWeek] = useState<string>("");
 
+  // Holds a date/week requested via `presetSelection` (deep-link from Player Stats "Edit") until
+  // the date/week effects below get a chance to apply it - they'd otherwise immediately overwrite
+  // it back to the most-recent entry as soon as `selectedLeague` changes.
+  const pendingPresetPeriodRef = useRef<{ date?: string; week?: string } | null>(null);
+
+  // Apply an incoming deep-link selection once, then let the parent clear it
+  useEffect(() => {
+    if (!presetSelection) return;
+    pendingPresetPeriodRef.current = { date: presetSelection.date, week: presetSelection.week };
+    setSelectedLeague(presetSelection.league);
+    if (presetSelection.week) {
+      setStatsMode("week");
+    } else if (presetSelection.date) {
+      setStatsMode("day");
+    }
+    if (onConsumedPresetSelection) onConsumedPresetSelection();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [presetSelection]);
+
   // Adjust date selection when selectedLeague or availableDates changes
   useEffect(() => {
     if (availableDates.length > 0) {
-      setSelectedDate(availableDates[0]);
+      const pendingDate = pendingPresetPeriodRef.current?.date;
+      if (pendingDate && availableDates.includes(pendingDate)) {
+        setSelectedDate(pendingDate);
+        pendingPresetPeriodRef.current = { ...pendingPresetPeriodRef.current, date: undefined };
+      } else {
+        setSelectedDate(availableDates[0]);
+      }
     } else {
       setSelectedDate("");
     }
@@ -150,7 +203,13 @@ export const PlayerInputPanel: React.FC<PlayerInputPanelProps> = ({
   // Adjust week selection when selectedLeague or availableWeeks changes
   useEffect(() => {
     if (availableWeeks.length > 0) {
-      setSelectedWeek(availableWeeks[0]);
+      const pendingWeek = pendingPresetPeriodRef.current?.week;
+      if (pendingWeek && availableWeeks.includes(pendingWeek)) {
+        setSelectedWeek(pendingWeek);
+        pendingPresetPeriodRef.current = { ...pendingPresetPeriodRef.current, week: undefined };
+      } else {
+        setSelectedWeek(availableWeeks[0]);
+      }
     } else {
       setSelectedWeek("");
     }
@@ -430,6 +489,21 @@ export const PlayerInputPanel: React.FC<PlayerInputPanelProps> = ({
       return;
     }
 
+    // Every player name entered here must exist in the Squad Roster for this league - stats are
+    // meaningless (and can't be cross-referenced) for a name that isn't a registered roster player.
+    const invalidNames = Array.from(new Set(
+      flatPlayers
+        .map(p => p.name.trim())
+        .filter(name => name && !rosterNamesForLeague.has(name.toLowerCase()))
+    ));
+    if (invalidNames.length > 0) {
+      setStatusMsg({
+        type: "error",
+        text: `Nama pemain berikut tidak ditemukan di Squad Roster untuk "${finalLeagueName}": ${invalidNames.join(", ")}. Tambahkan atau perbaiki nama pemain tersebut di menu Squad Roster terlebih dahulu sebelum menyimpan.`
+      });
+      return;
+    }
+
     setIsSaving(true);
     setStatusMsg(null);
 
@@ -524,6 +598,12 @@ export const PlayerInputPanel: React.FC<PlayerInputPanelProps> = ({
 
   return (
     <div className="space-y-6 animate-fadeIn font-mono">
+      <datalist id="pip-roster-names">
+        {rosterNameOptions.map(name => (
+          <option key={name} value={name} />
+        ))}
+      </datalist>
+
       {/* HEADER SECTION */}
       <div className={`p-6 rounded-2xl shadow-xl transition-all ${isDarkMode ? "bg-slate-900/50" : "bg-white border border-slate-200"}`}>
         <div className="border-b pb-4 border-slate-800">
@@ -803,8 +883,12 @@ export const PlayerInputPanel: React.FC<PlayerInputPanelProps> = ({
                                   onChange={(e) => handleUpdatePlayerCell(idx, "name", e.target.value)}
                                   onPaste={(e) => handlePasteGrid(e, idx, "name")}
                                   placeholder="Player..."
+                                  list="pip-roster-names"
+                                  title={p.name.trim() && !rosterNamesForLeague.has(p.name.trim().toLowerCase()) ? "Nama ini tidak ditemukan di Squad Roster liga ini" : undefined}
                                   className={`w-full rounded p-1 text-xs font-bold border focus:outline-none focus:ring-1 focus:ring-amber-500 ${
-                                    isDarkMode ? "bg-slate-900 border-slate-800 text-white" : "bg-slate-50 border-slate-200 text-slate-900"
+                                    p.name.trim() && !rosterNamesForLeague.has(p.name.trim().toLowerCase())
+                                      ? "border-red-500/60 bg-red-950/10 text-red-400"
+                                      : isDarkMode ? "bg-slate-900 border-slate-800 text-white" : "bg-slate-50 border-slate-200 text-slate-900"
                                   }`}
                                 />
                               </td>

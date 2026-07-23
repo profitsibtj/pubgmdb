@@ -313,6 +313,23 @@ export const TournamentStandings: React.FC<TournamentStandingsProps> = ({ matche
     return standings.find(s => s.name === selectedTeamDetail) || null;
   }, [standings, selectedTeamDetail]);
 
+  // Not every tournament runs a separate Grand Final stage - some are League-only, others go
+  // straight to a Final with no League phase. The champion star should only ever appear on
+  // whichever stage actually decides the tournament: the Final when one exists, otherwise Overall.
+  const hasGrandFinalMatches = useMemo(() => {
+    if (!selectedTournament) return false;
+    return matches.some(m => !m.isDailyStats && m.league === selectedTournament && m.isGrandFinal);
+  }, [matches, selectedTournament]);
+
+  const championTeamName = useMemo(() => {
+    if (viewMode === "league") return null;
+    const isDecidingStage = viewMode === "final" || (viewMode === "overall" && !hasGrandFinalMatches);
+    if (!isDecidingStage) return null;
+    const top = standings[0];
+    if (top && top.wwcdCount > 0) return top.name;
+    return null;
+  }, [standings, viewMode, hasGrandFinalMatches]);
+
   return (
     <div className="space-y-8 font-mono text-xs animate-fadeIn">
       
@@ -584,7 +601,7 @@ export const TournamentStandings: React.FC<TournamentStandingsProps> = ({ matche
                           <td className="py-3 px-4 font-bold uppercase tracking-tight">
                             <span className="flex items-center gap-1.5">
                               {team.name}
-                              {team.wwcdCount > 0 && rank === 1 && (
+                              {team.name === championTeamName && (
                                 <Star className="w-3.5 h-3.5 fill-amber-500 text-amber-500" />
                               )}
                             </span>
@@ -639,7 +656,9 @@ export const TournamentStandings: React.FC<TournamentStandingsProps> = ({ matche
                     <span className="text-[8px] text-slate-500 uppercase font-black tracking-wider block">NAMA SQUAD</span>
                     <h4 className="text-sm font-black text-amber-500 uppercase mt-0.5 tracking-tight flex items-center gap-1.5">
                       {activeTeamDetail.name}
-                      <Star className="w-3.5 h-3.5 fill-amber-500 text-amber-500" />
+                      {activeTeamDetail.name === championTeamName && (
+                        <Star className="w-3.5 h-3.5 fill-amber-500 text-amber-500" />
+                      )}
                     </h4>
                     
                     <div className={`grid grid-cols-3 gap-3 mt-4 pt-3 border-t text-center font-mono ${

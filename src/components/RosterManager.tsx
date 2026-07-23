@@ -23,6 +23,7 @@ interface RosterManagerProps {
   actionPasswordVerified: boolean;
   setActionPasswordVerified: (verified: boolean) => void;
   tournaments?: any[];
+  onUpdateTournaments?: (updatedTournaments: any[]) => void;
 }
 
 export const RosterManager: React.FC<RosterManagerProps> = ({
@@ -35,7 +36,8 @@ export const RosterManager: React.FC<RosterManagerProps> = ({
   verifyActionPassword,
   actionPasswordVerified,
   setActionPasswordVerified,
-  tournaments
+  tournaments,
+  onUpdateTournaments
 }) => {
   const [selectedLeague, setSelectedLeague] = useState(() => {
     if (tournaments && tournaments.length > 0) {
@@ -178,6 +180,30 @@ export const RosterManager: React.FC<RosterManagerProps> = ({
   const teamsInSelectedTour = React.useMemo(() => {
     return getTeamsForLeague(form.league);
   }, [getTeamsForLeague, form.league]);
+
+  // Team abbreviations (e.g. "Bigetron by Vitality" -> "BTR") are kept per-league on the
+  // tournament preset itself, since teams here are just grouped by name string with no
+  // dedicated "team" entity to attach the field to.
+  const teamAbbrMap: Record<string, string> = React.useMemo(() => {
+    const preset = tournamentsList.find((t: any) => t.name === selectedLeague);
+    return (preset && preset.teamAbbreviations) || {};
+  }, [tournamentsList, selectedLeague]);
+
+  const handleTeamAbbrChange = (teamName: string, abbr: string) => {
+    if (!onUpdateTournaments) return;
+    const trimmed = abbr.trim().toUpperCase();
+    const updated = tournamentsList.map((t: any) => {
+      if (t.name !== selectedLeague) return t;
+      const nextAbbrs = { ...(t.teamAbbreviations || {}) };
+      if (trimmed) {
+        nextAbbrs[teamName] = trimmed;
+      } else {
+        delete nextAbbrs[teamName];
+      }
+      return { ...t, teamAbbreviations: nextAbbrs };
+    });
+    onUpdateTournaments(updated);
+  };
 
   const handleOpenAddForm = () => {
     if (!actionPasswordVerified) {
@@ -547,6 +573,23 @@ export const RosterManager: React.FC<RosterManagerProps> = ({
                     <h3 className={`text-sm font-extrabold uppercase ${isDarkMode ? "text-slate-200" : "text-slate-800"}`}>
                       {teamName}
                     </h3>
+                    {actionPasswordVerified ? (
+                      <input
+                        type="text"
+                        value={teamAbbrMap[teamName] || ""}
+                        onChange={(e) => handleTeamAbbrChange(teamName, e.target.value)}
+                        placeholder="ABBR"
+                        maxLength={6}
+                        title="Singkatan tim (ABBR)"
+                        className={`w-16 text-center px-2 py-0.5 rounded-full text-[9px] font-black uppercase border focus:outline-none focus:ring-1 focus:ring-amber-500 ${
+                          isDarkMode ? "bg-slate-950/60 border-slate-800 text-amber-500" : "bg-amber-50 border-amber-200 text-amber-600"
+                        }`}
+                      />
+                    ) : teamAbbrMap[teamName] ? (
+                      <span className="text-[9px] px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-500 border border-amber-500/20 font-black uppercase">
+                        {teamAbbrMap[teamName]}
+                      </span>
+                    ) : null}
                     <span className="text-[9px] px-2 py-0.5 rounded-full bg-slate-950/40 text-slate-500 border border-slate-900/40 font-bold">
                       {teamPlayers.length} Members
                     </span>
