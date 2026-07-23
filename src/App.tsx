@@ -480,28 +480,30 @@ export default function App() {
 
   // Save/Edit Matches
   const handleSaveMatch = async (matchData: Match) => {
+    const isEdit = !!matchData.id;
+    const successMessage = isEdit ? "Berhasil memperbarui data match record." : "Berhasil menambahkan data match baru ke database.";
+
+    const saveViaClientDb = async () => {
+      if (isEdit) {
+        await clientDb.updateMatch(matchData.id!, matchData);
+      } else {
+        await clientDb.addMatch(matchData);
+      }
+    };
+
     try {
-      const isEdit = !!matchData.id;
       if (clientDb.getIsStatic()) {
-        if (isEdit) {
-          await clientDb.updateMatch(matchData.id!, matchData);
-        } else {
-          await clientDb.addMatch(matchData);
-        }
-        showToast(
-          isEdit ? "Berhasil memperbarui data match record." : "Berhasil menambahkan data match baru ke database.",
-          "success"
-        );
+        await saveViaClientDb();
+        showToast(successMessage, "success");
         setEditingMatch(null);
         fetchMatches();
         setActiveTab("matches");
         return;
       }
-      const url = isEdit ? `/api/matches/${matchData.id}` : "/api/matches";
-      const method = isEdit ? "PUT" : "POST";
 
       const tokenToUse = actionPassword || token || "";
-
+      const url = isEdit ? `/api/matches/${matchData.id}` : "/api/matches";
+      const method = isEdit ? "PUT" : "POST";
       const res = await fetch(url, {
         method,
         headers: {
@@ -511,35 +513,27 @@ export default function App() {
         body: JSON.stringify(matchData)
       });
 
-      if (res.ok) {
-        showToast(
-          isEdit ? "Berhasil memperbarui data match record." : "Berhasil menambahkan data match baru ke database.",
-          "success"
-        );
-        setEditingMatch(null);
-        fetchMatches();
-        setActiveTab("matches");
-      } else {
-        const errData = await res.json();
-        showToast(errData.error || "Gagal menyimpan match.", "error");
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || "Gagal menyimpan match.");
       }
+
+      showToast(successMessage, "success");
+      setEditingMatch(null);
+      fetchMatches();
+      setActiveTab("matches");
     } catch (err: any) {
+      // Failures are re-thrown after this so callers (AddMatchForm, PlayerInputPanel) know the
+      // save genuinely failed instead of showing a false "success" message of their own.
       try {
-        const isEdit = !!matchData.id;
-        if (isEdit) {
-          await clientDb.updateMatch(matchData.id!, matchData);
-        } else {
-          await clientDb.addMatch(matchData);
-        }
-        showToast(
-          isEdit ? "Berhasil memperbarui data match record (Static fallback)." : "Berhasil menambahkan data match baru ke database (Static fallback).",
-          "success"
-        );
+        await saveViaClientDb();
+        showToast(`${successMessage} (Static fallback).`, "success");
         setEditingMatch(null);
         fetchMatches();
         setActiveTab("matches");
       } catch (dbErr: any) {
         showToast("Error saving match: " + err.message, "error");
+        throw err;
       }
     }
   };
