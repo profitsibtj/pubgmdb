@@ -645,30 +645,32 @@ export const RosterManager: React.FC<RosterManagerProps> = ({
                             </div>
 
                             {/* Actions Column */}
-                            <div className="flex gap-1.5 shrink-0 ml-auto">
-                              <button
-                                onClick={() => handleOpenEditForm(p)}
-                                className={`px-2 py-1 border rounded-lg text-[10px] font-semibold cursor-pointer transition-all flex items-center gap-1 ${
-                                  isDarkMode 
-                                    ? "bg-slate-850 hover:bg-slate-800 text-slate-300 hover:text-white border-slate-800" 
-                                    : "bg-slate-50 hover:bg-slate-100 text-slate-600 hover:text-slate-900 border-slate-200"
-                                }`}
-                              >
-                                <Edit2 className="w-3 h-3 shrink-0 text-amber-500" />
-                                <span>Edit</span>
-                              </button>
-                              <button
-                                onClick={() => handleDeleteClick(p.id || "")}
-                                className={`p-1 border rounded-lg text-[10px] font-semibold cursor-pointer transition-all flex items-center justify-center ${
-                                  isDarkMode 
-                                    ? "bg-red-950/30 hover:bg-red-900/40 text-red-400 hover:text-red-300 border-red-900/30" 
-                                    : "bg-red-50 hover:bg-red-100 text-red-600 hover:text-red-500 border-red-200"
-                                }`}
-                                title="Delete Player"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
+                            {actionPasswordVerified && (
+                              <div className="flex gap-1.5 shrink-0 ml-auto">
+                                <button
+                                  onClick={() => handleOpenEditForm(p)}
+                                  className={`px-2 py-1 border rounded-lg text-[10px] font-semibold cursor-pointer transition-all flex items-center gap-1 ${
+                                    isDarkMode
+                                      ? "bg-slate-850 hover:bg-slate-800 text-slate-300 hover:text-white border-slate-800"
+                                      : "bg-slate-50 hover:bg-slate-100 text-slate-600 hover:text-slate-900 border-slate-200"
+                                  }`}
+                                >
+                                  <Edit2 className="w-3 h-3 shrink-0 text-amber-500" />
+                                  <span>Edit</span>
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteClick(p.id || "")}
+                                  className={`p-1 border rounded-lg text-[10px] font-semibold cursor-pointer transition-all flex items-center justify-center ${
+                                    isDarkMode
+                                      ? "bg-red-950/30 hover:bg-red-900/40 text-red-400 hover:text-red-300 border-red-900/30"
+                                      : "bg-red-50 hover:bg-red-100 text-red-600 hover:text-red-500 border-red-200"
+                                  }`}
+                                  title="Delete Player"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            )}
                           </div>
                         );
                       })}

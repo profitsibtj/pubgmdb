@@ -103,15 +103,39 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
     return Array.from(teamsSet).sort();
   }, [matches, selectedLeague]);
 
-  // Extract dynamic columns depending on the selected tournament
+  // Extract dynamic columns from what was actually entered in the Player Input Panel for the
+  // selected tournament (via each daily/weekly record's customColumns) - a column that was never
+  // configured as an input (e.g. Assist wasn't tracked for this league) is left out entirely
+  // instead of always showing a hardcoded 0.
   const dynamicColumns = useMemo(() => {
-    return [
-      { key: "matchesPlayed", label: "Match Played", type: "number" },
-      { key: "elims", label: "Kills", type: "number" },
-      { key: "damage", label: "Damage", type: "number" },
-      { key: "assists", label: "Assist", type: "number" },
-    ];
-  }, []);
+    const seen = new Map<string, { key: string; label: string; type: "number" | "string" }>();
+    const preferredOrder = ["matchesPlayed", "elims", "damage", "assists"];
+    const preferredLabels: Record<string, string> = {
+      matchesPlayed: "Match Played", elims: "Kills", damage: "Damage", assists: "Assist"
+    };
+
+    matches.forEach((m) => {
+      if (!m.isDailyStats) return;
+      if (selectedLeague !== "ALL" && (m.league || "").trim().toLowerCase() !== selectedLeague.toLowerCase()) return;
+
+      const cols = m.customColumns;
+      if (cols && cols.length > 0) {
+        cols.forEach((c) => {
+          if (c.key === "name" || c.key === "team" || seen.has(c.key)) return;
+          seen.set(c.key, { key: c.key, label: c.label, type: c.type });
+        });
+      } else {
+        // Older records saved before customColumns was persisted: assume the historical defaults.
+        ["matchesPlayed", "elims", "damage"].forEach((k) => {
+          if (!seen.has(k)) seen.set(k, { key: k, label: preferredLabels[k], type: "number" });
+        });
+      }
+    });
+
+    const known = preferredOrder.filter((k) => seen.has(k)).map((k) => seen.get(k)!);
+    const extra = Array.from(seen.values()).filter((c) => !preferredOrder.includes(c.key));
+    return [...known, ...extra];
+  }, [matches, selectedLeague]);
 
   // Extract all individual player match records across all teams & games
   const playerStats = useMemo(() => {
@@ -263,9 +287,21 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
         const valA = (a as any)[sortBy] !== undefined ? (a as any)[sortBy] : 0;
         const valB = (b as any)[sortBy] !== undefined ? (b as any)[sortBy] : 0;
 
-        return valB - valA;
+        if (valB !== valA) return valB - valA;
+        // Tie on Kills: higher Damage ranks first
+        if (sortBy === "elims") return (b.damage || 0) - (a.damage || 0);
+        return 0;
       });
   }, [playerStats, searchTerm, sortBy]);
+
+  // Keep the current sort selection valid if its column disappears (e.g. switching to a
+  // league/team where that stat was never entered)
+  useEffect(() => {
+    if (sortBy === "matchesPlayed") return;
+    if (!dynamicColumns.some((c) => c.key === sortBy)) {
+      setSortBy("matchesPlayed");
+    }
+  }, [dynamicColumns, sortBy]);
 
   const getPlayerBadge = (p: typeof playerStats[0]) => {
     if (p.avgElims >= 3.0) return { label: "Terminator", color: "bg-red-500/15 border-red-500/30 text-red-400" };
@@ -414,10 +450,11 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
                 isDarkMode ? "bg-slate-950 border-slate-800 text-white" : "bg-slate-50 border-slate-300 text-slate-900"
               }`}
             >
-              <option value="matchesPlayed">Match Played</option>
-              <option value="elims">Total Kills</option>
-              <option value="damage">Total Damage</option>
-              <option value="assists">Total Assist</option>
+              {dynamicColumns.map((col) => (
+                <option key={col.key} value={col.key}>
+                  {col.key === "matchesPlayed" ? col.label : `Total ${col.label}`}
+                </option>
+              ))}
             </select>
           </div>
         </div>
@@ -633,8 +670,10 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
                     <span className="text-amber-500 font-extrabold text-xs">{p.totalPoints} pts</span>
                   </div>
 
-                  {/* Core parameters stats bar */}
-                  <div className="grid grid-cols-4 gap-2 mt-4 border-t border-b border-slate-800/50 py-3.5 font-mono text-center">
+                  {/* Core parameters stats bar - only shows columns actually tracked for this league */}
+                  <div className={`grid gap-2 mt-4 border-t border-b border-slate-800/50 py-3.5 font-mono text-center ${
+                    dynamicColumns.some((c) => c.key === "assists") ? "grid-cols-4" : "grid-cols-3"
+                  }`}>
                     <div>
                       <div className="text-[8px] text-slate-500 uppercase font-bold tracking-tight">MATCHES</div>
                       <div className="text-xs font-extrabold text-slate-200 mt-1">{p.matchesCount}</div>
@@ -649,11 +688,13 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
                       <div className="text-xs font-extrabold text-teal-400 mt-1">{p.damage}</div>
                       <div className="text-[8px] text-slate-500">Avg: {p.avgDamage}</div>
                     </div>
-                    <div>
-                      <div className="text-[8px] text-slate-500 uppercase font-bold tracking-tight">AST</div>
-                      <div className="text-xs font-extrabold text-indigo-400 mt-1">{p.assists}</div>
-                      <div className="text-[8px] text-slate-500">Avg: {p.matchesCount > 0 ? Math.round((p.assists / p.matchesCount) * 10) / 10 : 0}</div>
-                    </div>
+                    {dynamicColumns.some((c) => c.key === "assists") && (
+                      <div>
+                        <div className="text-[8px] text-slate-500 uppercase font-bold tracking-tight">AST</div>
+                        <div className="text-xs font-extrabold text-indigo-400 mt-1">{p.assists}</div>
+                        <div className="text-[8px] text-slate-500">Avg: {p.matchesCount > 0 ? Math.round((p.assists / p.matchesCount) * 10) / 10 : 0}</div>
+                      </div>
+                    )}
                   </div>
 
                   {/* Admin Actions */}
