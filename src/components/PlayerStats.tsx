@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from "react";
 import { Match } from "../types";
-import { calculatePlacementPoints, getTournamentTeamList, canonicalizeTeamName, canonicalizePlayerName, canonicalCustomKey, looksLikeTimeValue } from "../utils";
+import { calculatePlacementPoints, getTournamentTeamList, canonicalizeTeamName, canonicalizePlayerName, canonicalCustomKey, looksLikeTimeValue, remapPlayerCustomKeys } from "../utils";
 import { RosterPlayer } from "./RosterManager";
 import {
   Search, User, Award, Grid, List, Trash2, Lock, ShieldAlert, Pencil, Crown
@@ -32,17 +32,6 @@ const accumulateDailyStats = (bucket: Record<string, any>, p: any) => {
   });
 };
 
-// "Time" columns (e.g. Survival Time) are entered as free text like "18:24" or "1:02:03" - parsed
-// to total seconds here so they can be summed like any other numeric stat.
-const parseTimeToSeconds = (value: any): number => {
-  if (typeof value !== "string" || !value.trim()) return 0;
-  const parts = value.trim().split(":").map((p) => parseInt(p, 10));
-  if (parts.some((n) => Number.isNaN(n))) return 0;
-  if (parts.length === 2) return parts[0] * 60 + parts[1];
-  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
-  return 0;
-};
-
 // Converts a summed seconds total back into a readable "H:MM:SS" (or "M:SS") string for display.
 const formatSecondsToTime = (totalSeconds: number): string => {
   const total = Math.max(0, Math.round(totalSeconds || 0));
@@ -51,37 +40,6 @@ const formatSecondsToTime = (totalSeconds: number): string => {
   const s = total % 60;
   const pad = (n: number) => String(n).padStart(2, "0");
   return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
-};
-
-// Rewrites a Daily Stats player entry's custom-column keys to their canonical form (see above),
-// and converts a "time" column's text value into seconds, before it gets aggregated - so every
-// period's copy of "the same" custom column sums into one bucket, and Survival Time-style columns
-// can be summed at all. A plain "string" column is left alone (free text is never aggregated),
-// unless its actual value looks like a time (see looksLikeTimeValue) - handles a Survival Time
-// column saved before the dedicated Time type existed, without needing to reopen and re-save it.
-const remapPlayerCustomKeys = (p: any, customColumns?: { key: string; label: string; type: string }[]): any => {
-  if (!customColumns || customColumns.length === 0) return p;
-  const remapped: any = { ...p };
-  customColumns.forEach((col) => {
-    if (col.key === "name" || col.key === "team") return;
-    if (p[col.key] === undefined) return;
-    const isTime = col.type === "time" || (col.type === "string" && looksLikeTimeValue(p[col.key]));
-    if (col.type === "string" && !isTime) return;
-    const canonicalKey = canonicalCustomKey(col.key, col.label);
-    const numericValue = isTime ? parseTimeToSeconds(p[col.key]) : (Number(p[col.key]) || 0);
-    if (canonicalKey === col.key) {
-      // Already stored under its canonical key (every standard field, e.g. matchesPlayed/elims,
-      // always is) - `remapped` already has this value via the spread above, so just normalize a
-      // time-string to seconds instead of adding numericValue on top of that same value again.
-      remapped[canonicalKey] = numericValue;
-    } else {
-      // Merges an old-format custom_ key into its canonical form, on top of whatever another
-      // differently-keyed column in this same set already contributed to that canonical key.
-      remapped[canonicalKey] = (typeof remapped[canonicalKey] === "number" ? remapped[canonicalKey] : 0) + numericValue;
-      delete remapped[col.key];
-    }
-  });
-  return remapped;
 };
 
 interface PlayerStatsProps {
@@ -516,17 +474,6 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
     }
   }, [dynamicColumns, sortBy, mvpFormula.length]);
 
-  const getPlayerBadge = (p: typeof playerStats[0]) => {
-    if (p.avgElims >= 3.0) return { label: "Terminator", color: "bg-red-500/15 border-red-500/30 text-red-400" };
-    if (p.avgDamage >= 450) return { label: "Apex Fragger", color: "bg-amber-500/15 border-amber-500/30 text-amber-400" };
-    if (p.avgHeals >= 2.5) return { label: "Field Medic", color: "bg-green-500/15 border-green-500/30 text-green-400" };
-    if (p.mvpRate >= 30) return { label: "G.O.A.T", color: "bg-purple-500/15 border-purple-500/30 text-purple-400" };
-    const upperRole = (p.role || "").toUpperCase();
-    if (upperRole === "COACH") return { label: "Coach", color: "bg-blue-500/15 border-blue-500/30 text-blue-400" };
-    if (upperRole === "ANALIS") return { label: "Analyst", color: "bg-teal-500/15 border-teal-500/30 text-teal-400" };
-    return { label: "Player", color: "bg-slate-500/15 border-slate-500/30 text-slate-400" };
-  };
-
   const handleDeleteClick = (playerName: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (actionPasswordVerified) {
@@ -847,9 +794,10 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
                           <td className={`py-3 px-4 font-bold sticky left-12 z-10 ${isDarkMode ? "bg-slate-950" : "bg-white"}`}>
                             <span className="tracking-tight">{p.name}</span>
                           </td>
-                          {/* Team name */}
-                          <td className="py-3 px-4 font-semibold text-slate-300">
-                            <span className="tracking-tight text-slate-300">{p.teamName || "-"}</span>
+                          {/* Team name - clamped to 2 lines so a long team name doesn't grow this
+                              row taller than its neighbors and throw off row alignment */}
+                          <td className="py-3 px-4 font-semibold text-slate-300 max-w-[160px]">
+                            <span className="tracking-tight text-slate-300 line-clamp-2 break-words">{p.teamName || "-"}</span>
                           </td>
                           {/* Dynamic columns values - per-period breakdown plus a Total group, or
                               just one Total-with-avg set of columns when there's only one period */}
@@ -953,34 +901,21 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
           /* GRID DETAIL CARD VIEW */
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 w-full">
             {filteredPlayers.map((p) => {
-              const badge = getPlayerBadge(p);
               return (
-                <div 
+                <div
                   key={p.name}
                   className={`rounded-2xl p-5 border transition-all relative overflow-hidden shadow-sm ${
-                    isDarkMode 
-                      ? "bg-slate-900/40 border-slate-800" 
+                    isDarkMode
+                      ? "bg-slate-900/40 border-slate-800"
                       : "bg-white border-slate-200"
                   }`}
                 >
-                  {/* Background accent */}
-                  <div className="absolute top-0 right-0 p-3 z-10">
-                    <span className={`text-[9px] px-2 py-0.5 rounded border font-mono font-bold ${badge.color}`}>
-                      {badge.label}
-                    </span>
-                  </div>
-
-                  <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 rounded-full bg-amber-500/10 text-amber-500 flex items-center justify-center border border-amber-500/20 shadow-inner shrink-0 font-bold font-mono text-lg uppercase">
-                      {p.name.substring(0, 2).toUpperCase()}
-                    </div>
-                    <div>
-                      <h3 className={`font-bold text-sm font-mono tracking-tight flex items-center gap-1.5 ${isDarkMode ? "text-slate-100" : "text-slate-900"}`}>
-                        {p.name}
-                      </h3>
-                      <div className="flex items-center gap-1.5 text-[10px] font-mono text-slate-500 mt-0.5">
-                        {p.teamName && <span className="text-slate-400 font-bold">{p.teamName}</span>}
-                      </div>
+                  <div>
+                    <h3 className={`font-bold text-sm font-mono tracking-tight flex items-center gap-1.5 ${isDarkMode ? "text-slate-100" : "text-slate-900"}`}>
+                      {p.name}
+                    </h3>
+                    <div className="flex items-center gap-1.5 text-[10px] font-mono text-slate-500 mt-0.5">
+                      {p.teamName && <span className="text-slate-400 font-bold">{p.teamName}</span>}
                     </div>
                   </div>
 

@@ -1404,9 +1404,7 @@ export default function App() {
             onSavePlayer={handleSaveRosterPlayer}
             onDeletePlayer={handleDeleteRosterPlayer}
             isDarkMode={isDarkMode}
-            verifyActionPassword={verifyActionPassword}
             actionPasswordVerified={actionPasswordVerified}
-            setActionPasswordVerified={handleSetActionPasswordVerified}
             tournaments={tournaments}
             onUpdateTournaments={handleUpdateTournaments}
           />
@@ -1519,6 +1517,7 @@ export default function App() {
                   onUpdateTournaments={handleUpdateTournaments}
                   matchPrefill={matchPrefill}
                   onConsumedMatchPrefill={() => setMatchPrefill(null)}
+                  onSaveSchedule={handleSaveSchedule}
                 />
               )}
             </div>

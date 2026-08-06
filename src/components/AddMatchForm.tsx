@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from "react";
-import { Match, Team, DailyStatsEntry } from "../types";
-import { calculatePlacementPoints, calculateLeagueRankStandings, canonicalCustomKey, looksLikeTimeValue } from "../utils";
+import { Match, Team, DailyStatsEntry, ScheduleEntry } from "../types";
+import { calculatePlacementPoints, calculateLeagueRankStandings, getTournamentTeamList, canonicalizeTeamName, canonicalCustomKey, looksLikeTimeValue } from "../utils";
 import {
   Plus, Trash2, RefreshCw, AlertTriangle, Save, GripVertical, Layers,
   ChevronUp, ChevronDown, X, Crown, CalendarClock
@@ -21,6 +21,9 @@ interface AddMatchFormProps {
   // title don't have to be retyped here after already being entered once in the schedule.
   matchPrefill?: { league?: string; map?: string; date?: string; matchCode?: string } | null;
   onConsumedMatchPrefill?: () => void;
+  // Lets a brand-new match be saved as a not-yet-played Schedule entry instead of a full result,
+  // from this same form - one place to add a match either way, instead of a separate screen.
+  onSaveSchedule?: (schedule: ScheduleEntry) => Promise<void>;
 }
 
 export const AddMatchForm: React.FC<AddMatchFormProps> = ({
@@ -33,11 +36,19 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
   tournaments: passedTournaments,
   onUpdateTournaments,
   matchPrefill,
-  onConsumedMatchPrefill
+  onConsumedMatchPrefill,
+  onSaveSchedule
 }) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
+
+  // "This match hasn't happened yet" toggle: saves a lightweight Schedule entry (see Match
+  // Schedule tab) from this same form instead of a full result - one place to add a match either
+  // way, so there's no separate "Add Schedule" screen to remember to use instead. Reuses this
+  // form's own date/time fields rather than asking for them a second time.
+  const [isScheduleOnly, setIsScheduleOnly] = useState(false);
+  const [scheduleTeamsInput, setScheduleTeamsInput] = useState("");
 
   const getTodayDateString = () => {
     const today = new Date();
@@ -501,6 +512,22 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
     }
   }, [selectedTournamentId, activeTournament?.format, activeTournament?.activeMatchup, activeTournament?.activeGroup, editingMatch]);
 
+  // Auto-fill the Schedule toggle's Participating Teams from this league's currently-configured
+  // lobby/group whenever the "hasn't happened yet" toggle turns on or the league changes - same
+  // team list the full form already auto-populates above, so there's nothing to retype. Still
+  // freely editable afterward (only re-fills on toggle/league change, not on every keystroke).
+  React.useEffect(() => {
+    if (!isScheduleOnly || !activeTournament) return;
+    const names = getTeamsFromActiveTournament(
+      activeTournament,
+      activeTournament.format,
+      activeTournament.activeMatchup,
+      activeTournament.activeGroup || "A"
+    );
+    setScheduleTeamsInput(names.join(", "));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isScheduleOnly, selectedTournamentId]);
+
   // Sync current metadata league to the active tournament name
   React.useEffect(() => {
     if (activeTournament) {
@@ -823,6 +850,45 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
     });
   };
 
+  // Saves the "hasn't happened yet" toggle's simplified fields as a Schedule entry instead of a
+  // full match result. Reuses meta.date/meta.time (the same fields the full form already has)
+  // rather than asking for the scheduled time a second time.
+  const handleSubmitSchedule = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMsg("");
+    setSuccessMsg("");
+    if (!onSaveSchedule) {
+      setErrorMsg("Schedule saving isn't available right now.");
+      return;
+    }
+    setIsSubmitting(true);
+    try {
+      const teamList = getTournamentTeamList(activeTournament);
+      const teams = scheduleTeamsInput.split(",").map(t => t.trim()).filter(Boolean)
+        .map(t => canonicalizeTeamName(t, teamList, activeTournament?.teamAbbreviations));
+      const scheduledAtIso = meta.date && meta.time
+        ? new Date(`${meta.date}T${meta.time}`).toISOString()
+        : "";
+
+      await onSaveSchedule({
+        league: (activeTournament?.name || meta.league).trim(),
+        matchCode: meta.matchCode.trim(),
+        teams,
+        map: meta.map,
+        scheduledAt: scheduledAtIso,
+        liveLink: meta.liveLink.trim(),
+        isFinished: false
+      });
+      setSuccessMsg("Match scheduled successfully!");
+      setTimeout(() => onClose(), 1200);
+    } catch (err: any) {
+      console.error(err);
+      setErrorMsg(err.message || "An error occurred while saving the schedule.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   // Submit Logic
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -885,6 +951,149 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
         </h2>
       </div>
 
+      {/* Not-yet-played toggle: one form for both an upcoming match (-> Schedule) and a finished
+          one (-> full result), so there's no separate screen to remember to use instead. Only
+          offered for a brand-new entry - editing an already-saved result is always the real thing. */}
+      {!editingMatch && onSaveSchedule && (
+        <label className={`flex items-center gap-2.5 p-3 mb-4 rounded-xl border cursor-pointer transition-all ${
+          isScheduleOnly
+            ? "bg-amber-500/10 border-amber-500/30"
+            : isDarkMode ? "bg-slate-950/40 border-slate-850" : "bg-slate-50 border-slate-200"
+        }`}>
+          <input
+            type="checkbox"
+            checked={isScheduleOnly}
+            onChange={(e) => setIsScheduleOnly(e.target.checked)}
+            className="w-4 h-4 accent-amber-500 cursor-pointer"
+          />
+          <span className={`text-[11px] font-mono font-bold uppercase ${isScheduleOnly ? "text-amber-500" : isDarkMode ? "text-slate-300" : "text-slate-600"}`}>
+            Match ini belum main (simpan sebagai jadwal dulu)
+          </span>
+        </label>
+      )}
+
+      {isScheduleOnly && !editingMatch ? (
+        <form onSubmit={handleSubmitSchedule} className="space-y-6">
+          <div className={`p-4 rounded-xl border grid grid-cols-1 md:grid-cols-2 gap-4 ${isDarkMode ? "bg-slate-950/40 border-slate-850" : "bg-slate-50 border-slate-200"}`}>
+            <div className="space-y-1">
+              <label className="text-[10px] font-mono font-bold text-slate-500 uppercase">LEAGUE/COMPETITION:</label>
+              <select
+                value={selectedTournamentId}
+                onChange={(e) => setSelectedTournamentId(e.target.value)}
+                className={`w-full p-2 rounded-lg text-xs font-mono border focus:outline-none focus:ring-1 focus:ring-amber-500 cursor-pointer ${isDarkMode ? "bg-slate-900 border-slate-800 text-slate-100" : "bg-white border-slate-300 text-slate-900"}`}
+              >
+                {tournaments.map(t => (
+                  <option key={t.id} value={t.id}>{t.name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-1">
+              <label className="text-[10px] font-mono font-bold text-slate-500 uppercase">TITLE (e.g. Week 1 Day 2):</label>
+              <input
+                type="text"
+                value={meta.matchCode}
+                onChange={(e) => handleMetaChange("matchCode", e.target.value)}
+                placeholder="Week 1 Day 2"
+                className={`w-full p-2 rounded-lg text-xs font-mono border focus:outline-none focus:ring-1 focus:ring-amber-500 ${isDarkMode ? "bg-slate-900 border-slate-800 text-slate-100" : "bg-white border-slate-300 text-slate-900"}`}
+                required
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-[10px] font-mono font-bold text-slate-500 uppercase">SCHEDULED DATE:</label>
+              <div className="flex gap-1">
+                <input
+                  type="date"
+                  value={meta.date}
+                  onChange={(e) => handleMetaChange("date", e.target.value)}
+                  className={`flex-1 p-2 rounded-lg text-xs font-mono border focus:outline-none focus:ring-1 focus:ring-amber-500 ${isDarkMode ? "bg-slate-900 border-slate-800 text-slate-100" : "bg-white border-slate-300 text-slate-900"}`}
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={() => handleMetaChange("date", getTodayDateString())}
+                  className="px-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold font-mono text-[10px] rounded-lg transition-colors cursor-pointer shrink-0"
+                  title="Set to Today"
+                >
+                  Today
+                </button>
+              </div>
+            </div>
+            <div className="space-y-1">
+              <label className="text-[10px] font-mono font-bold text-slate-500 uppercase">SCHEDULED TIME:</label>
+              <input
+                type="time"
+                value={meta.time}
+                onChange={(e) => handleMetaChange("time", e.target.value)}
+                className={`w-full p-2 rounded-lg text-xs font-mono border focus:outline-none focus:ring-1 focus:ring-amber-500 ${isDarkMode ? "bg-slate-900 border-slate-800 text-slate-100" : "bg-white border-slate-300 text-slate-900"}`}
+                required
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-[10px] font-mono font-bold text-slate-500 uppercase">MAP PLAYED:</label>
+              <select
+                value={meta.map}
+                onChange={(e) => handleMetaChange("map", e.target.value)}
+                className={`w-full p-2 rounded-lg text-xs font-mono border focus:outline-none focus:ring-1 focus:ring-amber-500 cursor-pointer ${isDarkMode ? "bg-slate-900 border-slate-800 text-slate-100" : "bg-white border-slate-300 text-slate-900"}`}
+              >
+                {["Erangel", "Miramar", "Sanhok", "Rondo"].map(m => (
+                  <option key={m} value={m}>{m}</option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-1">
+              <label className="text-[10px] font-mono font-bold text-slate-500 uppercase">LIVE STREAM LINK (optional):</label>
+              <input
+                type="text"
+                value={meta.liveLink}
+                onChange={(e) => handleMetaChange("liveLink", e.target.value)}
+                placeholder="https://youtube.com/..."
+                className={`w-full p-2 rounded-lg text-xs font-mono border focus:outline-none focus:ring-1 focus:ring-amber-500 ${isDarkMode ? "bg-slate-900 border-slate-800 text-slate-100" : "bg-white border-slate-300 text-slate-900"}`}
+              />
+            </div>
+            <div className="space-y-1 md:col-span-2">
+              <label className="text-[10px] font-mono font-bold text-slate-500 uppercase">PARTICIPATING TEAMS:</label>
+              <input
+                type="text"
+                value={scheduleTeamsInput}
+                onChange={(e) => setScheduleTeamsInput(e.target.value)}
+                placeholder="Team A, Team B, ..."
+                className={`w-full p-2 rounded-lg text-xs font-mono border focus:outline-none focus:ring-1 focus:ring-amber-500 ${isDarkMode ? "bg-slate-900 border-slate-800 text-slate-100" : "bg-white border-slate-300 text-slate-900"}`}
+              />
+              <p className="text-[9px] text-slate-500">Auto-filled from this league's current lobby/group - edit if this match's lineup is different.</p>
+            </div>
+          </div>
+
+          {errorMsg && (
+            <div className="p-3 rounded-xl bg-red-950/20 border border-red-900/40 text-red-400 text-xs flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 shrink-0" />
+              {errorMsg}
+            </div>
+          )}
+          {successMsg && (
+            <div className="p-3 rounded-xl bg-teal-950/20 border border-teal-900/40 text-teal-400 text-xs">
+              {successMsg}
+            </div>
+          )}
+
+          <div className="flex justify-end gap-3">
+            <button
+              type="button"
+              onClick={onClose}
+              className={`px-5 py-2.5 rounded-xl font-bold text-xs cursor-pointer transition-all ${isDarkMode ? "bg-slate-800 hover:bg-slate-700 text-slate-400" : "bg-slate-100 hover:bg-slate-200 text-slate-600"}`}
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              className="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-50 disabled:cursor-not-allowed text-slate-950 font-bold text-xs cursor-pointer transition-all flex items-center gap-2"
+            >
+              <CalendarClock className="w-4 h-4" />
+              {isSubmitting ? "Saving..." : "Save Schedule"}
+            </button>
+          </div>
+        </form>
+      ) : (
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* MATCH METADATA ROW */}
         <div className={`p-4 rounded-xl border grid grid-cols-2 md:grid-cols-4 gap-4 ${isDarkMode ? "bg-slate-950/40 border-slate-850" : "bg-slate-50 border-slate-200"}`}>
@@ -1845,6 +2054,7 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
           </button>
         </div>
       </form>
+      )}
     </div>
   );
 };

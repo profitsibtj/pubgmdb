@@ -165,7 +165,7 @@ export const DropZoneSimulator: React.FC<DropZoneSimulatorProps> = ({
     <div className="space-y-6 animate-fadeIn font-mono">
       {/* HEADER / TOURNAMENT SELECTOR */}
       <div className={`p-5 rounded-2xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4 transition-all ${
-        isDarkMode ? "bg-slate-900/50" : "bg-white border border-slate-200"
+        isDarkMode ? "bg-slate-900/50" : "bg-white"
       }`}>
         <div>
           <h2 className={`text-base font-bold uppercase tracking-tight flex items-center gap-2 ${isDarkMode ? "text-slate-100" : "text-slate-900"}`}>
@@ -199,7 +199,7 @@ export const DropZoneSimulator: React.FC<DropZoneSimulatorProps> = ({
 
       {/* MAP TOGGLE */}
       <div className={`p-4 rounded-2xl flex flex-wrap items-center justify-between gap-3 transition-all ${
-        isDarkMode ? "bg-slate-900/50" : "bg-white border border-slate-200"
+        isDarkMode ? "bg-slate-900/50" : "bg-white"
       }`}>
         <div className="flex gap-2">
           {MAPS.map((m) => (
@@ -259,14 +259,14 @@ export const DropZoneSimulator: React.FC<DropZoneSimulatorProps> = ({
       </div>
 
       {teamsInLeague.length === 0 ? (
-        <div className={`text-center py-12 rounded-2xl text-xs text-slate-500 ${isDarkMode ? "bg-slate-900/50" : "bg-white border border-slate-200"}`}>
+        <div className={`text-center py-12 rounded-2xl text-xs text-slate-500 ${isDarkMode ? "bg-slate-900/50" : "bg-white"}`}>
           No teams registered yet for {selectedTournament || "this tournament"}. Add players in Rosters first.
         </div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 items-start">
           {/* TEAM LIST */}
           <div className={`p-4 rounded-2xl space-y-2 lg:col-span-1 transition-all ${
-            isDarkMode ? "bg-slate-900/50" : "bg-white border border-slate-200"
+            isDarkMode ? "bg-slate-900/50" : "bg-white"
           }`}>
             <h3 className="text-[10px] font-bold uppercase text-slate-500 tracking-wider pb-2 border-b border-slate-800/40 mb-2">
               Teams ({pinnedCount}/{teamsInLeague.length} pinned)

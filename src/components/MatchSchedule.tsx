@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import { ScheduleEntry, Match } from "../types";
 import { getTournamentTeamList, canonicalizeTeamName } from "../utils";
 import {
-  Trash2, Edit2, X, Clock, Radio, CheckCircle2, Play, CalendarClock, RefreshCw, Flag, ClipboardList, History, Plus
+  Trash2, Edit2, X, Clock, Radio, CheckCircle2, Play, CalendarClock, RefreshCw, Flag, ClipboardList, History
 } from "lucide-react";
 
 interface MatchScheduleProps {
@@ -187,21 +187,6 @@ export const MatchSchedule: React.FC<MatchScheduleProps> = ({
         </h2>
 
         <div className="flex items-center gap-2 flex-wrap">
-          {actionPasswordVerified && (
-            <button
-              type="button"
-              onClick={() => {
-                setEditingId(null);
-                setForm(emptyForm(defaultLeague));
-                setTeamsInput("");
-                setIsFormOpen(true);
-              }}
-              className="px-3 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-[10px] uppercase cursor-pointer transition-all flex items-center gap-1.5"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              Add Schedule
-            </button>
-          )}
           {actionPasswordVerified && matchesWithoutSchedule.length > 0 && (
             <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border ${isDarkMode ? "bg-slate-950 border-slate-800" : "bg-slate-100 border-slate-200"}`}>
               <History className="w-3.5 h-3.5 text-slate-500 shrink-0" />
@@ -248,7 +233,7 @@ export const MatchSchedule: React.FC<MatchScheduleProps> = ({
           <div className={`flex justify-between items-center border-b pb-3 mb-4 ${isDarkMode ? "border-slate-900" : "border-slate-200"}`}>
             <h3 className="text-xs font-bold uppercase tracking-wider text-amber-500 flex items-center gap-1.5">
               <CalendarClock className="w-4 h-4" />
-              {editingId ? "Edit Schedule" : "Add Schedule"}
+              Edit Schedule
             </h3>
             <button
               onClick={() => { setIsFormOpen(false); setEditingId(null); }}
@@ -488,18 +473,16 @@ export const MatchSchedule: React.FC<MatchScheduleProps> = ({
                           Mark as Finished
                         </button>
                       )}
-                      {status !== "finished" && (
-                        <button
-                          type="button"
-                          onClick={() => handleOpenEditForm(s)}
-                          className={`p-1.5 rounded-lg border cursor-pointer transition-all ${
-                            isDarkMode ? "bg-slate-950 hover:bg-slate-850 text-slate-300 border-slate-800" : "bg-white hover:bg-slate-100 text-slate-600 border-slate-200"
-                          }`}
-                          title="Edit schedule entry"
-                        >
-                          <Edit2 className="w-3.5 h-3.5 shrink-0 text-amber-500" />
-                        </button>
-                      )}
+                      <button
+                        type="button"
+                        onClick={() => handleOpenEditForm(s)}
+                        className={`p-1.5 rounded-lg border cursor-pointer transition-all ${
+                          isDarkMode ? "bg-slate-950 hover:bg-slate-850 text-slate-300 border-slate-800" : "bg-white hover:bg-slate-100 text-slate-600 border-slate-200"
+                        }`}
+                        title="Edit schedule entry"
+                      >
+                        <Edit2 className="w-3.5 h-3.5 shrink-0 text-amber-500" />
+                      </button>
                       <button
                         type="button"
                         onClick={() => setDeleteConfirmId(s.id || null)}

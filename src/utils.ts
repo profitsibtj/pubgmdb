@@ -46,6 +46,46 @@ export const canonicalCustomKey = (rawKey: string, label: string): string => {
 export const looksLikeTimeValue = (value: any): boolean =>
   typeof value === "string" && /^\d{1,3}:\d{2}(:\d{2})?$/.test(value.trim());
 
+// "Time" columns (e.g. Survival Time) are entered as free text like "18:24" or "1:02:03" - parsed
+// to total seconds here so they can be summed like any other numeric stat.
+export const parseTimeToSeconds = (value: any): number => {
+  if (typeof value !== "string" || !value.trim()) return 0;
+  const parts = value.trim().split(":").map((p) => parseInt(p, 10));
+  if (parts.some((n) => Number.isNaN(n))) return 0;
+  if (parts.length === 2) return parts[0] * 60 + parts[1];
+  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+  return 0;
+};
+
+// Rewrites a Daily Stats player entry's custom-column keys to their canonical form (see
+// canonicalCustomKey above), and converts a "time" column's text value into seconds, before it
+// gets aggregated - so every period's copy of "the same" custom column sums into one bucket, and
+// Survival Time-style columns can be summed at all. A plain "string" column is left alone (free
+// text is never aggregated), unless its actual value looks like a time (see looksLikeTimeValue) -
+// handles a Survival Time column saved before the dedicated Time type existed, without needing to
+// reopen and re-save it. Used by both PlayerStats (per-period breakdown) and HeadToHead (overall
+// comparison) so a manually-added column with a non-standard key (e.g. "Assist" -> custom_assist)
+// contributes to both instead of silently reading as 0 in one of them.
+export const remapPlayerCustomKeys = (p: any, customColumns?: { key: string; label: string; type: string }[]): any => {
+  if (!customColumns || customColumns.length === 0) return p;
+  const remapped: any = { ...p };
+  customColumns.forEach((col) => {
+    if (col.key === "name" || col.key === "team") return;
+    if (p[col.key] === undefined) return;
+    const isTime = col.type === "time" || (col.type === "string" && looksLikeTimeValue(p[col.key]));
+    if (col.type === "string" && !isTime) return;
+    const canonicalKey = canonicalCustomKey(col.key, col.label);
+    const numericValue = isTime ? parseTimeToSeconds(p[col.key]) : (Number(p[col.key]) || 0);
+    if (canonicalKey === col.key) {
+      remapped[canonicalKey] = numericValue;
+    } else {
+      remapped[canonicalKey] = (typeof remapped[canonicalKey] === "number" ? remapped[canonicalKey] : 0) + numericValue;
+      delete remapped[col.key];
+    }
+  });
+  return remapped;
+};
+
 // Pulls just the Week number out of a matchCode, e.g. "W2D3" -> "Week 2".
 // Returns null when no week is encoded (not every league uses a week structure).
 export const getMatchWeekLabel = (match: Match): string | null => {

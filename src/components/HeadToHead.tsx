@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from "react";
 import { Match } from "../types";
-import { getTournamentTeamList, canonicalizeTeamName, canonicalizePlayerName } from "../utils";
+import { getTournamentTeamList, canonicalizeTeamName, canonicalizePlayerName, remapPlayerCustomKeys } from "../utils";
 import { RosterPlayer } from "./RosterManager";
 import { Crown, Swords } from "lucide-react";
 
@@ -63,9 +63,15 @@ export const HeadToHead: React.FC<HeadToHeadProps> = ({ matches, isDarkMode, tou
       // Daily/weekly records also use different semantics: matchesPlayed/wwcdCount are explicit
       // per-player fields instead of one match/placement per Team entry.
       (m.teams || []).forEach((t) => {
-        (t.players || []).forEach((p) => {
-          const name = canonicalizePlayerForMatch(p.name.trim(), m.league || "");
+        (t.players || []).forEach((rawP) => {
+          const name = canonicalizePlayerForMatch(rawP.name.trim(), m.league || "");
           if (!name) return;
+
+          // A manually-added custom column (e.g. typing "Assist" in Player Input Panel's "+ Add
+          // Column") can land under a non-standard key (custom_assist) instead of the standard
+          // one this reads directly (assists) - remapped here the same way Player Stats does, so
+          // a value entered there isn't silently read as 0 here.
+          const p: any = m.isDailyStats ? remapPlayerCustomKeys(rawP, m.customColumns) : rawP;
 
           if (!list[name]) {
             list[name] = {
