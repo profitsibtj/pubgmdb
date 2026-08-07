@@ -144,28 +144,52 @@ export const canonicalizeTeamName = (
   return trimmed;
 };
 
-// Reconciles a raw player-name string back to that player's current roster name, using each
-// roster player's registered "previous names" - so stats logged under an old nickname (before a
-// rename) still accumulate onto the same player instead of appearing as a separate person. Falls
-// back to the trimmed input unchanged when no match is found.
-export const canonicalizePlayerName = (
+// Resolves a raw player-name (plus the team it was actually recorded under) to the specific
+// roster player it belongs to - so two different real people who happen to share a nickname
+// (e.g. two players both going by "Shiro" on different teams) are never merged into one person's
+// stats, without the admin having to type a fake/modified name for either of them. Also
+// reconciles an old nickname (registered as a roster player's "previous name") back to that
+// player's current one, so a rename doesn't split their stats in two.
+//
+// Matching: an exact name (or previous-name) match against exactly one roster player is the
+// common case - unambiguous regardless of team (so a player's stats stay together across a
+// mid-season transfer). When the SAME name matches more than one roster player, the current team
+// recorded on this particular stat breaks the tie. `id` is the identity to group/aggregate by
+// (stable and unique even when two players share a name); `name` is what to display.
+// Falls back to a synthetic identity (id = the trimmed input) when no roster entry matches at
+// all - e.g. a typo, or the roster hasn't been filled in yet - so that data still shows up as its
+// own person instead of being silently dropped.
+export interface RosterPlayerLike {
+  id?: string;
+  name: string;
+  team?: string;
+  previousNames?: string[];
+}
+
+export const matchRosterPlayer = (
   rawName: string,
-  rosterForLeague: { name: string; previousNames?: string[] }[]
-): string => {
+  teamName: string,
+  rosterForLeague: RosterPlayerLike[]
+): { id: string; name: string } => {
   const trimmed = (rawName || "").trim();
-  if (!trimmed) return trimmed;
+  if (!trimmed) return { id: "", name: "" };
   const lower = trimmed.toLowerCase();
+  const teamLower = (teamName || "").trim().toLowerCase();
 
-  const exact = rosterForLeague.find(r => r.name.trim().toLowerCase() === lower);
-  if (exact) return exact.name.trim();
+  const matches = rosterForLeague.filter(r =>
+    r.name.trim().toLowerCase() === lower ||
+    (r.previousNames || []).some(pn => pn.trim().toLowerCase() === lower)
+  );
 
-  for (const r of rosterForLeague) {
-    if ((r.previousNames || []).some(pn => pn.trim().toLowerCase() === lower)) {
-      return r.name.trim();
-    }
+  if (matches.length === 0) return { id: trimmed, name: trimmed };
+  if (matches.length === 1) {
+    const only = matches[0];
+    return { id: only.id || only.name.trim(), name: only.name.trim() };
   }
 
-  return trimmed;
+  const teamMatch = matches.find(r => (r.team || "").trim().toLowerCase() === teamLower);
+  const chosen = teamMatch || matches[0];
+  return { id: chosen.id || chosen.name.trim(), name: chosen.name.trim() };
 };
 
 export interface LeagueRankStanding {

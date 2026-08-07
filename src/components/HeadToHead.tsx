@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from "react";
 import { Match } from "../types";
-import { getTournamentTeamList, canonicalizeTeamName, canonicalizePlayerName, remapPlayerCustomKeys } from "../utils";
+import { getTournamentTeamList, canonicalizeTeamName, matchRosterPlayer, remapPlayerCustomKeys } from "../utils";
 import { RosterPlayer } from "./RosterManager";
 import { Crown, Swords } from "lucide-react";
 
@@ -24,10 +24,12 @@ export const HeadToHead: React.FC<HeadToHeadProps> = ({ matches, isDarkMode, tou
     return highlighted?.name || null;
   }, [tournaments]);
 
-  // Reconciles a player name back to their current roster name when it matches a registered
-  // previous nickname, so a rename doesn't split that player's stats into two entries.
+  // Resolves a player name (+ the team it was recorded under) back to the specific roster player
+  // it belongs to - reconciling a registered previous nickname back to their current name, and
+  // disambiguating two different roster players who share a name (e.g. two players both going by
+  // "Shiro" on different teams) by team, so their stats never merge into one person.
   const rosterByLeague = useMemo(() => {
-    const map: Record<string, { name: string; previousNames?: string[] }[]> = {};
+    const map: Record<string, RosterPlayer[]> = {};
     (roster || []).forEach((r) => {
       const key = (r.league || "").trim().toLowerCase();
       if (!map[key]) map[key] = [];
@@ -36,19 +38,21 @@ export const HeadToHead: React.FC<HeadToHeadProps> = ({ matches, isDarkMode, tou
     return map;
   }, [roster]);
 
-  const canonicalizePlayerForMatch = React.useCallback((rawName: string, leagueName: string) => {
+  const canonicalizePlayerForMatch = React.useCallback((rawName: string, leagueName: string, teamName: string) => {
     const trimmed = (rawName || "").trim();
     const rosterForLeague = rosterByLeague[(leagueName || "").trim().toLowerCase()];
-    if (!rosterForLeague) return trimmed;
-    return canonicalizePlayerName(trimmed, rosterForLeague);
+    if (!rosterForLeague) return { id: trimmed, name: trimmed };
+    return matchRosterPlayer(trimmed, teamName, rosterForLeague);
   }, [rosterByLeague]);
 
   // Process overall stats of players. Only fields actually collected by the Player Input Panel
   // are tracked here (matches, elims, damage, assists, WWCD) - knocks/heals/survival time/MVP
   // aren't part of that data entry flow, so they're left out rather than always showing 0.
   const playersData = useMemo(() => {
-    const list: { [name: string]: {
+    const list: { [id: string]: {
+      id: string;
       name: string;
+      teamName: string;
       role: string;
       matches: number;
       elims: number;
@@ -64,8 +68,8 @@ export const HeadToHead: React.FC<HeadToHeadProps> = ({ matches, isDarkMode, tou
       // per-player fields instead of one match/placement per Team entry.
       (m.teams || []).forEach((t) => {
         (t.players || []).forEach((rawP) => {
-          const name = canonicalizePlayerForMatch(rawP.name.trim(), m.league || "");
-          if (!name) return;
+          const identity = canonicalizePlayerForMatch(rawP.name.trim(), m.league || "", t.name || "");
+          if (!identity.id) return;
 
           // A manually-added custom column (e.g. typing "Assist" in Player Input Panel's "+ Add
           // Column") can land under a non-standard key (custom_assist) instead of the standard
@@ -73,9 +77,11 @@ export const HeadToHead: React.FC<HeadToHeadProps> = ({ matches, isDarkMode, tou
           // a value entered there isn't silently read as 0 here.
           const p: any = m.isDailyStats ? remapPlayerCustomKeys(rawP, m.customColumns) : rawP;
 
-          if (!list[name]) {
-            list[name] = {
-              name,
+          if (!list[identity.id]) {
+            list[identity.id] = {
+              id: identity.id,
+              name: identity.name,
+              teamName: t.name || "",
               role: p.role || "PLAYER",
               matches: 0,
               elims: 0,
@@ -85,7 +91,8 @@ export const HeadToHead: React.FC<HeadToHeadProps> = ({ matches, isDarkMode, tou
             };
           }
 
-          const pl = list[name];
+          const pl = list[identity.id];
+          pl.teamName = t.name || pl.teamName;
           if (m.isDailyStats) {
             pl.matches += p.matchesPlayed !== undefined ? p.matchesPlayed : 0;
             pl.wwcd += p.wwcdCount || 0;
@@ -109,6 +116,17 @@ export const HeadToHead: React.FC<HeadToHeadProps> = ({ matches, isDarkMode, tou
     }));
   }, [matches, canonicalizePlayerForMatch]);
 
+  // Two roster players can legitimately share a display name (see matchRosterPlayer) - flagged
+  // here so the picker below can tell them apart by team instead of showing two identical rows.
+  const duplicatePlayerNames = useMemo(() => {
+    const counts: Record<string, number> = {};
+    playersData.forEach((p) => {
+      const key = p.name.toLowerCase();
+      counts[key] = (counts[key] || 0) + 1;
+    });
+    return new Set(Object.keys(counts).filter((k) => counts[k] > 1));
+  }, [playersData]);
+
   // Reconciles team-name variants (e.g. an ABBR typed instead of the full name in Player Input
   // Panel) back to one consistent name per tournament, so the same team never gets silently split
   // into two entries.
@@ -130,6 +148,7 @@ export const HeadToHead: React.FC<HeadToHeadProps> = ({ matches, isDarkMode, tou
   // Process overall stats of teams (aggregated across every match they've played)
   const teamsData = useMemo(() => {
     const list: { [name: string]: {
+      id: string;
       name: string;
       matches: number;
       elims: number;
@@ -146,7 +165,7 @@ export const HeadToHead: React.FC<HeadToHeadProps> = ({ matches, isDarkMode, tou
         if (!name) return;
 
         if (!list[name]) {
-          list[name] = { name, matches: 0, elims: 0, placementPointsTotal: 0, totalPointsSum: 0, wwcd: 0, top4: 0 };
+          list[name] = { id: name, name, matches: 0, elims: 0, placementPointsTotal: 0, totalPointsSum: 0, wwcd: 0, top4: 0 };
         }
 
         const tm = list[name];
@@ -180,22 +199,22 @@ export const HeadToHead: React.FC<HeadToHeadProps> = ({ matches, isDarkMode, tou
   // Set initial selections when data changes
   React.useEffect(() => {
     if (activeData.length >= 2) {
-      if (!target1 || !activeData.some(p => p.name === target1)) {
-        setTarget1(activeData[0].name);
+      if (!target1 || !activeData.some(p => p.id === target1)) {
+        setTarget1(activeData[0].id);
       }
-      if (!target2 || !activeData.some(p => p.name === target2)) {
-        setTarget2(activeData[1].name);
+      if (!target2 || !activeData.some(p => p.id === target2)) {
+        setTarget2(activeData[1].id);
       }
     }
   }, [activeData]);
 
   // Get compared objects
   const obj1 = useMemo(() => {
-    return activeData.find((p) => p.name === target1);
+    return activeData.find((p) => p.id === target1);
   }, [activeData, target1]);
 
   const obj2 = useMemo(() => {
-    return activeData.find((p) => p.name === target2);
+    return activeData.find((p) => p.id === target2);
   }, [activeData, target2]);
 
   return (
@@ -247,8 +266,10 @@ export const HeadToHead: React.FC<HeadToHeadProps> = ({ matches, isDarkMode, tou
               }`}
             >
               {activeData.map((p) => (
-                <option key={p.name} value={p.name} disabled={p.name === target2}>
-                  {p.name}
+                <option key={p.id} value={p.id} disabled={p.id === target2}>
+                  {compType === "player" && duplicatePlayerNames.has(p.name.toLowerCase())
+                    ? `${p.name} (${(p as any).teamName})`
+                    : p.name}
                 </option>
               ))}
             </select>
@@ -266,8 +287,10 @@ export const HeadToHead: React.FC<HeadToHeadProps> = ({ matches, isDarkMode, tou
               }`}
             >
               {activeData.map((p) => (
-                <option key={p.name} value={p.name} disabled={p.name === target1}>
-                  {p.name}
+                <option key={p.id} value={p.id} disabled={p.id === target1}>
+                  {compType === "player" && duplicatePlayerNames.has(p.name.toLowerCase())
+                    ? `${p.name} (${(p as any).teamName})`
+                    : p.name}
                 </option>
               ))}
             </select>

@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from "react";
 import { Match } from "../types";
-import { calculatePlacementPoints, getTournamentTeamList, canonicalizeTeamName, canonicalizePlayerName, canonicalCustomKey, looksLikeTimeValue, remapPlayerCustomKeys } from "../utils";
+import { calculatePlacementPoints, getTournamentTeamList, canonicalizeTeamName, matchRosterPlayer, canonicalCustomKey, looksLikeTimeValue, remapPlayerCustomKeys } from "../utils";
 import { RosterPlayer } from "./RosterManager";
 import {
   Search, User, Award, Grid, List, Trash2, Lock, ShieldAlert, Pencil, Crown
@@ -47,7 +47,7 @@ interface PlayerStatsProps {
   isDarkMode: boolean;
   actionPasswordVerified?: boolean;
   verifyActionPassword?: (password: string) => Promise<boolean>;
-  onDeletePlayerStats?: (playerName: string) => Promise<void>;
+  onDeletePlayerStats?: (playerName: string, teamName?: string) => Promise<void>;
   tournaments?: any[];
   roster?: RosterPlayer[];
   // Deep-links into the Player Input Panel to fix an already-posted record (all player stats
@@ -78,15 +78,19 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
   const [viewMode, setViewMode] = useState<"table" | "grid">("table");
 
   // Admin passcode verification modal state
-  const [passModal, setPassModal] = useState({ isOpen: false, password: "", error: "", targetPlayer: "" });
+  const [passModal, setPassModal] = useState({ isOpen: false, password: "", error: "", targetPlayerId: "", targetPlayerName: "", targetTeam: "" });
 
   // Custom delete confirmation modal state
   const [deleteConfirmModal, setDeleteConfirmModal] = useState<{
     isOpen: boolean;
+    playerId: string;
     playerName: string;
+    teamName: string;
   }>({
     isOpen: false,
-    playerName: ""
+    playerId: "",
+    playerName: "",
+    teamName: ""
   });
 
   // Picker shown when a player's stats were posted across more than one daily/weekly record,
@@ -170,11 +174,12 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
     return canonicalizeTeamName(trimmed, getTournamentTeamList(preset), preset.teamAbbreviations);
   }, [presetsByLeague]);
 
-  // Reconciles a player name back to their current roster name when it matches a registered
-  // previous nickname, so a rename (or an inconsistently-cased entry) doesn't split that player's
-  // stats into two separate rows.
+  // Resolves a player name (+ the team it was recorded under) back to the specific roster player
+  // it belongs to - reconciling a registered previous nickname back to their current name, and
+  // disambiguating two different roster players who share a name (e.g. two players both going by
+  // "Shiro" on different teams) by team, so their stats never merge into one person.
   const rosterByLeague = useMemo(() => {
-    const map: Record<string, { name: string; previousNames?: string[] }[]> = {};
+    const map: Record<string, RosterPlayer[]> = {};
     (roster || []).forEach((r) => {
       const key = (r.league || "").trim().toLowerCase();
       if (!map[key]) map[key] = [];
@@ -183,11 +188,11 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
     return map;
   }, [roster]);
 
-  const canonicalizePlayerForMatch = React.useCallback((rawName: string, leagueName: string) => {
+  const canonicalizePlayerForMatch = React.useCallback((rawName: string, leagueName: string, teamName: string) => {
     const trimmed = (rawName || "").trim();
     const rosterForLeague = rosterByLeague[(leagueName || "").trim().toLowerCase()];
-    if (!rosterForLeague) return trimmed;
-    return canonicalizePlayerName(trimmed, rosterForLeague);
+    if (!rosterForLeague) return { id: trimmed, name: trimmed };
+    return matchRosterPlayer(trimmed, teamName, rosterForLeague);
   }, [rosterByLeague]);
 
   // Extract unique teams list that actually played in the selected tournament/league
@@ -284,7 +289,7 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
 
   // Extract all individual player match records across all teams & games
   const playerStats = useMemo(() => {
-    const stats: { [name: string]: any } = {};
+    const stats: { [id: string]: any } = {};
 
     matches.forEach((m) => {
       // Filter by league/competition (case-insensitive & trimmed)
@@ -296,11 +301,13 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
         if (selectedTeam !== "ALL" && teamName !== selectedTeam) return;
 
         (t.players || []).forEach((p) => {
-          const name = canonicalizePlayerForMatch(p.name.trim(), m.league || "");
-          if (!name) return;
+          const identity = canonicalizePlayerForMatch(p.name.trim(), m.league || "", t.name || "");
+          const { id, name } = identity;
+          if (!id) return;
 
-          if (!stats[name]) {
-            stats[name] = {
+          if (!stats[id]) {
+            stats[id] = {
+              id,
               name,
               role: p.role || "Player",
               teamName: teamName || "",
@@ -325,7 +332,7 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
             };
           }
 
-          const ps = stats[name];
+          const ps = stats[id];
           if (m.isDailyStats) {
             const canonicalPlayer = remapPlayerCustomKeys(p, m.customColumns);
             accumulateDailyStats(ps, canonicalPlayer);
@@ -474,30 +481,30 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
     }
   }, [dynamicColumns, sortBy, mvpFormula.length]);
 
-  const handleDeleteClick = (playerName: string, e: React.MouseEvent) => {
+  const handleDeleteClick = (player: any, e: React.MouseEvent) => {
     e.stopPropagation();
     if (actionPasswordVerified) {
       setDeleteConfirmModal({
         isOpen: true,
-        playerName
+        playerId: player.id,
+        playerName: player.name,
+        teamName: player.teamName || ""
       });
     } else {
-      setPassModal({ isOpen: true, password: "", error: "", targetPlayer: playerName });
+      setPassModal({ isOpen: true, password: "", error: "", targetPlayerId: player.id, targetPlayerName: player.name, targetTeam: player.teamName || "" });
     }
   };
 
   // Every player stat here comes from a daily/weekly record saved in the Player Input Panel -
   // find every such record that already lists this player, so "Edit" can deep-link right to it.
-  const getPlayerDailyRecords = (playerName: string) => {
-    // Matched through the same canonicalizer the table itself uses: only merges an exact current
-    // roster name or an explicitly-registered previous nickname - never a loose case-insensitive
-    // guess, so "SANJUREN" and an unrelated "Sanjuren" typo stay separate, but a real rename
-    // (registered via Previous Name(s) in Squad Roster) still finds its older records correctly.
-    const target = playerName.trim();
+  const getPlayerDailyRecords = (playerId: string) => {
+    // Matched by the same team-aware identity the table itself uses, so two different roster
+    // players who happen to share a name (see matchRosterPlayer) never get mixed into each
+    // other's records here.
     const records: { league: string; date?: string; week?: string; tournamentWide?: boolean; label: string }[] = [];
     matches.forEach(m => {
       if (!m.isDailyStats) return;
-      const hasPlayer = (m.teams || []).some(t => (t.players || []).some(p => canonicalizePlayerForMatch(p.name.trim(), m.league || "") === target));
+      const hasPlayer = (m.teams || []).some(t => (t.players || []).some(p => canonicalizePlayerForMatch(p.name.trim(), m.league || "", t.name || "").id === playerId));
       if (!hasPlayer) return;
       const code = (m.matchCode || "").toUpperCase();
       const isWeekRecord = code.startsWith("DAILY_WEEK");
@@ -513,15 +520,15 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
     return records;
   };
 
-  const handleEditClick = (playerName: string, e: React.MouseEvent) => {
+  const handleEditClick = (player: any, e: React.MouseEvent) => {
     e.stopPropagation();
-    const records = getPlayerDailyRecords(playerName);
+    const records = getPlayerDailyRecords(player.id);
     if (records.length === 0) return;
     if (records.length === 1) {
       if (onEditPlayerRecord) onEditPlayerRecord(records[0].league, { date: records[0].date, week: records[0].week, tournamentWide: records[0].tournamentWide });
       return;
     }
-    setEditPickerModal({ isOpen: true, playerName, records });
+    setEditPickerModal({ isOpen: true, playerName: player.name, records });
   };
 
   const handleVerifyPass = async (e: React.FormEvent) => {
@@ -529,11 +536,15 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
     if (!verifyActionPassword || !onDeletePlayerStats) return;
     const isOk = await verifyActionPassword(passModal.password);
     if (isOk) {
-      const pName = passModal.targetPlayer;
-      setPassModal({ isOpen: false, password: "", error: "", targetPlayer: "" });
+      const pId = passModal.targetPlayerId;
+      const pName = passModal.targetPlayerName;
+      const pTeam = passModal.targetTeam;
+      setPassModal({ isOpen: false, password: "", error: "", targetPlayerId: "", targetPlayerName: "", targetTeam: "" });
       setDeleteConfirmModal({
         isOpen: true,
-        playerName: pName
+        playerId: pId,
+        playerName: pName,
+        teamName: pTeam
       });
     } else {
       setPassModal(prev => ({ ...prev, error: "Incorrect password or insufficient admin authority." }));
@@ -769,7 +780,7 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
                 <tbody className="divide-y divide-slate-800/30">
                   {filteredPlayers.map((p, index) => {
                     return (
-                      <React.Fragment key={p.name}>
+                      <React.Fragment key={p.id}>
                         <tr 
                           className={`transition-all ${
                             isDarkMode 
@@ -870,7 +881,7 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
                               <div className="inline-flex gap-1.5">
                                 <button
                                   type="button"
-                                  onClick={(e) => handleEditClick(p.name, e)}
+                                  onClick={(e) => handleEditClick(p, e)}
                                   className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 border border-amber-400 font-mono font-extrabold text-[10px] tracking-wide uppercase transition-all duration-200 cursor-pointer inline-flex items-center gap-1.5 shadow-md"
                                   title="Edit Already Posted Player Stats Data"
                                 >
@@ -879,7 +890,7 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={(e) => handleDeleteClick(p.name, e)}
+                                  onClick={(e) => handleDeleteClick(p, e)}
                                   className="px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-700 text-white border border-red-500 font-mono font-extrabold text-[10px] tracking-wide uppercase transition-all duration-200 cursor-pointer inline-flex items-center gap-1.5 shadow-md hover:shadow-red-900/20"
                                   title="Delete All Player Stats Data"
                                 >
@@ -903,7 +914,7 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
             {filteredPlayers.map((p) => {
               return (
                 <div
-                  key={p.name}
+                  key={p.id}
                   className={`rounded-2xl p-5 border transition-all relative overflow-hidden shadow-sm ${
                     isDarkMode
                       ? "bg-slate-900/40 border-slate-800"
@@ -967,7 +978,7 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
                     <div className="mt-4 pt-3 border-t border-slate-800/20 flex gap-2" onClick={(e) => e.stopPropagation()}>
                       <button
                         type="button"
-                        onClick={(e) => handleEditClick(p.name, e)}
+                        onClick={(e) => handleEditClick(p, e)}
                         className="flex-1 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 border border-amber-400 font-mono font-extrabold text-[11px] tracking-wider uppercase transition-all duration-200 cursor-pointer flex items-center justify-center gap-1.5 shadow-md"
                       >
                         <Pencil className="w-3.5 h-3.5" />
@@ -975,7 +986,7 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
                       </button>
                       <button
                         type="button"
-                        onClick={(e) => handleDeleteClick(p.name, e)}
+                        onClick={(e) => handleDeleteClick(p, e)}
                         className="flex-1 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white border border-red-500 font-mono font-extrabold text-[11px] tracking-wider uppercase transition-all duration-200 cursor-pointer flex items-center justify-center gap-1.5 shadow-md hover:shadow-red-900/30"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -1029,7 +1040,7 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
               <div className="flex gap-3 pt-2">
                 <button
                   type="button"
-                  onClick={() => setPassModal({ isOpen: false, password: "", error: "", targetPlayer: "" })}
+                  onClick={() => setPassModal({ isOpen: false, password: "", error: "", targetPlayerId: "", targetPlayerName: "", targetTeam: "" })}
                   className={`flex-1 py-2 rounded-xl font-bold border transition-all cursor-pointer ${
                     isDarkMode 
                       ? "border-slate-800 hover:bg-slate-800 text-slate-400" 
@@ -1074,7 +1085,7 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
               <div className="flex gap-3 pt-2">
                 <button
                   type="button"
-                  onClick={() => setDeleteConfirmModal({ isOpen: false, playerName: "" })}
+                  onClick={() => setDeleteConfirmModal({ isOpen: false, playerId: "", playerName: "", teamName: "" })}
                   className={`flex-1 border rounded-lg py-2 font-bold cursor-pointer transition-all text-center ${isDarkMode ? "bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 border-slate-700" : "bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-800 border-slate-200"}`}
                 >
                   Cancel
@@ -1083,9 +1094,9 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
                   type="button"
                   onClick={() => {
                     if (onDeletePlayerStats) {
-                      onDeletePlayerStats(deleteConfirmModal.playerName);
+                      onDeletePlayerStats(deleteConfirmModal.playerName, deleteConfirmModal.teamName);
                     }
-                    setDeleteConfirmModal({ isOpen: false, playerName: "" });
+                    setDeleteConfirmModal({ isOpen: false, playerId: "", playerName: "", teamName: "" });
                   }}
                   className="flex-1 bg-red-600 hover:bg-red-500 active:bg-red-700 text-white rounded-lg py-2 font-bold cursor-pointer transition-all flex items-center justify-center gap-1 shadow-lg shadow-red-600/10"
                 >

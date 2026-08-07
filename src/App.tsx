@@ -1109,15 +1109,20 @@ export default function App() {
   };
 
   // Delete Player Stats across both real match results and Daily Stats entries
-  const handleDeletePlayerStats = async (playerName: string) => {
+  const handleDeletePlayerStats = async (playerName: string, teamName?: string) => {
     try {
+      const targetName = playerName.trim().toLowerCase();
+      const targetTeam = teamName?.trim().toLowerCase();
+      const matchesPlayer = (p: any, t: any) =>
+        p.name.trim().toLowerCase() === targetName &&
+        (!targetTeam || (t.name || "").trim().toLowerCase() === targetTeam);
       const containsPlayer = (m: { teams?: any[] }) =>
         (m.teams || []).some(t =>
-          (t.players || []).some((p: any) => p.name.trim().toLowerCase() === playerName.trim().toLowerCase())
+          (t.players || []).some((p: any) => matchesPlayer(p, t))
         );
       const stripPlayer = (teams: any[]) => teams.map(t => ({
         ...t,
-        players: (t.players || []).filter((p: any) => p.name.trim().toLowerCase() !== playerName.trim().toLowerCase())
+        players: (t.players || []).filter((p: any) => !matchesPlayer(p, t))
       }));
 
       const matchesToUpdate = matches.filter(containsPlayer);

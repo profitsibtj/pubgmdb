@@ -222,19 +222,23 @@ export const RosterManager: React.FC<RosterManagerProps> = ({
   // Comma-separated old nicknames, edited as free text and parsed into an array on submit
   const [previousNamesInput, setPreviousNamesInput] = useState("");
 
-  const handleOpenAddForm = () => {
-    setEditingPlayer(null);
-    setUseCustomTeam(false);
-    setForm({
-      name: "",
-      role: "Player",
-      team: "Netral",
-      league: selectedLeague
-    });
-    setAbbrInput("");
-    setPreviousNamesInput("");
-    setIsFormOpen(true);
-  };
+  // Bulk "Add Players" form - one League/Team/ABBR shared across every row (adding a whole squad
+  // at once), so only the name/nickname/role actually differ per row. Starts with 4 blank rows,
+  // since 4 is the minimum needed to field a match; +Add Row covers a 5th player, coach, analyst.
+  interface BulkRow { name: string; previousNames: string; role: string; }
+  const emptyBulkRow = (): BulkRow => ({ name: "", previousNames: "", role: "Player" });
+  const [isBulkAddOpen, setIsBulkAddOpen] = useState(false);
+  const [bulkLeague, setBulkLeague] = useState("");
+  const [bulkTeam, setBulkTeam] = useState("");
+  const [bulkUseCustomTeam, setBulkUseCustomTeam] = useState(false);
+  const [bulkAbbrInput, setBulkAbbrInput] = useState("");
+  const [bulkRows, setBulkRows] = useState<BulkRow[]>([]);
+  const [bulkError, setBulkError] = useState("");
+  const [isBulkSaving, setIsBulkSaving] = useState(false);
+
+  const teamsInBulkLeague = React.useMemo(() => {
+    return getTeamsForLeague(bulkLeague);
+  }, [getTeamsForLeague, bulkLeague]);
 
   const handleOpenEditForm = (player: RosterPlayer) => {
     setEditingPlayer(player);
@@ -257,13 +261,29 @@ export const RosterManager: React.FC<RosterManagerProps> = ({
 
   const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.name.trim()) return;
+    const trimmedName = form.name.trim();
+    if (!trimmedName) return;
+
+    // Two different real players can share a nickname (e.g. "Shiro" on two different teams) -
+    // block a rename/save that would collide with ANOTHER player's name in the same league, so
+    // their stats never silently merge into one person. A genuine team transfer keeps editing the
+    // same player record, so it's excluded here by id.
+    const clash = roster.find(p =>
+      p.id !== editingPlayer?.id &&
+      (p.league || "").trim().toLowerCase() === form.league.trim().toLowerCase() &&
+      p.name.trim().toLowerCase() === trimmedName.toLowerCase()
+    );
+    if (clash) {
+      alert(`"${trimmedName}" is already registered in this league (team: ${clash.team}). If this is the same person, edit that player instead. If it's someone else, give this player a distinct name.`);
+      return;
+    }
+
     try {
       const previousNames = previousNamesInput
         .split(",")
         .map(n => n.trim())
-        .filter(n => n.length > 0 && n.toLowerCase() !== form.name.trim().toLowerCase());
-      await onSavePlayer({ ...form, previousNames });
+        .filter(n => n.length > 0 && n.toLowerCase() !== trimmedName.toLowerCase());
+      await onSavePlayer({ ...form, name: trimmedName, previousNames });
       if (form.team.trim()) {
         handleTeamAbbrChange(form.league, form.team.toUpperCase().trim(), abbrInput);
       }
@@ -271,6 +291,85 @@ export const RosterManager: React.FC<RosterManagerProps> = ({
       setEditingPlayer(null);
     } catch (err: any) {
       alert("Error saving player: " + err.message);
+    }
+  };
+
+  const handleOpenBulkAdd = () => {
+    setBulkLeague(selectedLeague);
+    setBulkTeam("");
+    setBulkUseCustomTeam(false);
+    setBulkAbbrInput("");
+    setBulkRows([emptyBulkRow(), emptyBulkRow(), emptyBulkRow(), emptyBulkRow()]);
+    setBulkError("");
+    setIsBulkAddOpen(true);
+  };
+
+  const handleBulkRowChange = (idx: number, field: keyof BulkRow, value: string) => {
+    setBulkRows(prev => prev.map((r, i) => (i === idx ? { ...r, [field]: value } : r)));
+  };
+
+  const handleAddBulkRow = () => setBulkRows(prev => [...prev, emptyBulkRow()]);
+  const handleRemoveBulkRow = (idx: number) => setBulkRows(prev => prev.filter((_, i) => i !== idx));
+
+  const handleSubmitBulkAdd = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBulkError("");
+
+    if (!bulkTeam.trim()) {
+      setBulkError("Team name is required.");
+      return;
+    }
+
+    const filledRows = bulkRows
+      .map((r) => ({ ...r, name: r.name.trim() }))
+      .filter((r) => r.name.length > 0);
+    if (filledRows.length === 0) {
+      setBulkError("Enter at least one player name.");
+      return;
+    }
+
+    // Same collision guard as the Edit form (see handleFormSubmit) - also checked against every
+    // other name already typed in this same batch, so pasting a duplicate by mistake is caught
+    // before anything is saved.
+    const existingInLeague = roster.filter(
+      (p) => (p.league || "").trim().toLowerCase() === bulkLeague.trim().toLowerCase()
+    );
+    const seenInBatch = new Set<string>();
+    for (const row of filledRows) {
+      const lower = row.name.toLowerCase();
+      const clash = existingInLeague.find((p) => p.name.trim().toLowerCase() === lower);
+      if (clash) {
+        setBulkError(`"${row.name}" is already registered in this league (team: ${clash.team}). If this is the same person, use Edit on that player instead. If it's a different person, give them a distinct name.`);
+        return;
+      }
+      if (seenInBatch.has(lower)) {
+        setBulkError(`"${row.name}" is entered more than once in this batch.`);
+        return;
+      }
+      seenInBatch.add(lower);
+    }
+
+    setIsBulkSaving(true);
+    try {
+      for (const row of filledRows) {
+        const previousNames = row.previousNames
+          .split(",")
+          .map((n) => n.trim())
+          .filter((n) => n.length > 0 && n.toLowerCase() !== row.name.toLowerCase());
+        await onSavePlayer({
+          name: row.name,
+          role: row.role,
+          team: bulkTeam.trim(),
+          league: bulkLeague,
+          previousNames
+        });
+      }
+      handleTeamAbbrChange(bulkLeague, bulkTeam.toUpperCase().trim(), bulkAbbrInput);
+      setIsBulkAddOpen(false);
+    } catch (err: any) {
+      setBulkError("Error saving players: " + err.message);
+    } finally {
+      setIsBulkSaving(false);
     }
   };
 
@@ -290,11 +389,11 @@ export const RosterManager: React.FC<RosterManagerProps> = ({
         <div className="flex flex-wrap items-center gap-3">
           {actionPasswordVerified && (
             <button
-              onClick={handleOpenAddForm}
+              onClick={handleOpenBulkAdd}
               className="px-4 py-2 text-xs font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-xl shadow shadow-amber-500/10 transition-all flex items-center gap-1.5 cursor-pointer"
             >
               <Plus className="w-4 h-4 shrink-0" />
-              Add New Player
+              Add Players
             </button>
           )}
         </div>
@@ -356,7 +455,7 @@ export const RosterManager: React.FC<RosterManagerProps> = ({
           <div className={`flex justify-between items-center border-b pb-3 mb-4 ${isDarkMode ? "border-slate-900" : "border-slate-200"}`}>
             <h3 className="text-xs font-bold uppercase tracking-wider text-amber-500 flex items-center gap-1.5">
               <Sparkles className="w-4 h-4" />
-              {editingPlayer ? "Edit Roster Player" : "Add Roster Player"}
+              Edit Roster Player
             </h3>
             <button
               onClick={() => { setIsFormOpen(false); setEditingPlayer(null); }}
@@ -498,6 +597,187 @@ export const RosterManager: React.FC<RosterManagerProps> = ({
                 className="px-5 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl shadow-lg cursor-pointer"
               >
                 Save Player
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* BULK ADD PLAYERS PANEL */}
+      {isBulkAddOpen && (
+        <div className={`p-6 rounded-2xl shadow-xl transition-all ${
+          isDarkMode ? "bg-slate-950/90 border border-amber-500/20 text-slate-100" : "bg-white border border-amber-500/50 text-slate-900"
+        }`}>
+          <div className={`flex justify-between items-center border-b pb-3 mb-4 ${isDarkMode ? "border-slate-900" : "border-slate-200"}`}>
+            <h3 className="text-xs font-bold uppercase tracking-wider text-amber-500 flex items-center gap-1.5">
+              <Sparkles className="w-4 h-4" />
+              Add Players
+            </h3>
+            <button
+              onClick={() => setIsBulkAddOpen(false)}
+              className="p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition-all cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          <p className="text-[10px] text-slate-500 mb-4">4 rows are ready to go - fill them in, add more if you need to.</p>
+
+          <form onSubmit={handleSubmitBulkAdd} className="space-y-4 text-xs">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="space-y-1.5">
+                <label className="font-semibold block text-slate-400 uppercase text-[10px]">League/Competition:</label>
+                <select
+                  value={bulkLeague}
+                  onChange={(e) => {
+                    setBulkLeague(e.target.value);
+                    setBulkTeam("");
+                    setBulkUseCustomTeam(false);
+                    setBulkAbbrInput("");
+                  }}
+                  className={`w-full rounded-lg p-2.5 text-sm focus:outline-none border focus:ring-1 focus:ring-amber-500 cursor-pointer ${isDarkMode ? "bg-slate-900 border-slate-800 text-slate-100" : "bg-slate-50 border-slate-200 text-slate-900"}`}
+                  required
+                >
+                  <option value="">-- Select League / Tournament --</option>
+                  {leagues.map((l) => (
+                    <option key={l} value={l}>{l}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="font-semibold block text-slate-400 uppercase text-[10px]">Team Name:</label>
+                {bulkUseCustomTeam ? (
+                  <div className="flex gap-1.5">
+                    <input
+                      type="text"
+                      value={bulkTeam}
+                      onChange={(e) => setBulkTeam(e.target.value)}
+                      className={`flex-1 rounded-lg p-2.5 text-sm focus:outline-none border focus:ring-1 focus:ring-amber-500 ${isDarkMode ? "bg-slate-900 border-slate-800 text-slate-100" : "bg-slate-50 border-slate-200 text-slate-900"}`}
+                      placeholder="e.g. Level Up Indonesia"
+                      required
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setBulkUseCustomTeam(false)}
+                      className={`px-3 py-2 text-[10px] font-bold rounded-lg border cursor-pointer transition-colors ${isDarkMode ? "bg-slate-850 hover:bg-slate-800 text-slate-300 border-slate-700" : "bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300"}`}
+                    >
+                      Choose from Roster
+                    </button>
+                  </div>
+                ) : (
+                  <select
+                    value={bulkTeam}
+                    onChange={(e) => {
+                      if (e.target.value === "__custom__") {
+                        setBulkUseCustomTeam(true);
+                        setBulkTeam("");
+                      } else {
+                        setBulkTeam(e.target.value);
+                        setBulkAbbrInput(getTeamAbbrMap(bulkLeague)[e.target.value.toUpperCase().trim()] || "");
+                      }
+                    }}
+                    className={`w-full rounded-lg p-2.5 text-sm focus:outline-none border focus:ring-1 focus:ring-amber-500 cursor-pointer ${isDarkMode ? "bg-slate-900 border-slate-800 text-slate-100" : "bg-slate-50 border-slate-200 text-slate-900"}`}
+                  >
+                    <option value="">-- Select Team --</option>
+                    {teamsInBulkLeague.map((t) => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
+                    <option value="__custom__">Type manually...</option>
+                  </select>
+                )}
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="font-semibold block text-slate-400 uppercase text-[10px]">Team ABBR:</label>
+                <input
+                  type="text"
+                  value={bulkAbbrInput}
+                  onChange={(e) => setBulkAbbrInput(e.target.value)}
+                  maxLength={6}
+                  placeholder="e.g. BTR"
+                  className={`w-full rounded-lg p-2.5 text-sm uppercase font-bold focus:outline-none border focus:ring-1 focus:ring-amber-500 ${isDarkMode ? "bg-slate-900 border-slate-800 text-amber-500" : "bg-slate-50 border-slate-200 text-amber-600"}`}
+                />
+              </div>
+            </div>
+
+            <div>
+              <div className={`hidden md:grid gap-2 text-[9px] font-bold text-slate-500 uppercase mb-1 px-0.5`} style={{ gridTemplateColumns: "20px 1fr 1fr 110px 28px" }}>
+                <div />
+                <div>Player Name</div>
+                <div>Previous Name(s) (optional)</div>
+                <div>Role</div>
+                <div />
+              </div>
+              <div className="space-y-2">
+                {bulkRows.map((row, idx) => (
+                  <div key={idx} className="grid grid-cols-1 md:grid-cols-[20px_1fr_1fr_110px_28px] gap-2 items-center">
+                    <div className="hidden md:block text-center text-[10px] text-slate-600 font-bold">{idx + 1}</div>
+                    <input
+                      type="text"
+                      value={row.name}
+                      onChange={(e) => handleBulkRowChange(idx, "name", e.target.value)}
+                      placeholder="Player name"
+                      className={`w-full rounded-lg p-2 text-xs focus:outline-none border focus:ring-1 focus:ring-amber-500 ${isDarkMode ? "bg-slate-900 border-slate-800 text-slate-100" : "bg-slate-50 border-slate-200 text-slate-900"}`}
+                    />
+                    <input
+                      type="text"
+                      value={row.previousNames}
+                      onChange={(e) => handleBulkRowChange(idx, "previousNames", e.target.value)}
+                      placeholder="e.g. old IGN"
+                      className={`w-full rounded-lg p-2 text-xs focus:outline-none border focus:ring-1 focus:ring-amber-500 ${isDarkMode ? "bg-slate-900 border-slate-800 text-slate-300" : "bg-slate-50 border-slate-200 text-slate-700"}`}
+                    />
+                    <select
+                      value={row.role}
+                      onChange={(e) => handleBulkRowChange(idx, "role", e.target.value)}
+                      className={`w-full rounded-lg p-2 text-xs focus:outline-none border focus:ring-1 focus:ring-amber-500 cursor-pointer ${isDarkMode ? "bg-slate-900 border-slate-800 text-slate-100" : "bg-slate-50 border-slate-200 text-slate-900"}`}
+                    >
+                      <option value="Player">Player</option>
+                      <option value="Coach">Coach</option>
+                      <option value="Analis">Analyst</option>
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveBulkRow(idx)}
+                      title="Remove row"
+                      className="p-1.5 rounded-lg text-slate-500 hover:text-red-400 transition-colors cursor-pointer justify-self-center"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleAddBulkRow}
+              className={`w-full py-2 rounded-lg border border-dashed text-[10px] font-bold uppercase cursor-pointer transition-colors ${isDarkMode ? "border-slate-700 text-amber-500 hover:bg-slate-900" : "border-slate-300 text-amber-600 hover:bg-slate-50"}`}
+            >
+              + Add Row
+            </button>
+
+            {bulkError && (
+              <div className="p-3 rounded-xl bg-red-950/20 border border-red-900/40 text-red-400 text-[11px] leading-relaxed">
+                {bulkError}
+              </div>
+            )}
+
+            <div className={`flex justify-end gap-3 pt-2 border-t ${isDarkMode ? "border-slate-900" : "border-slate-200"}`}>
+              <button
+                type="button"
+                onClick={() => setIsBulkAddOpen(false)}
+                disabled={isBulkSaving}
+                className={`px-4 py-2 border rounded-xl cursor-pointer ${isDarkMode ? "bg-slate-800 hover:bg-slate-700 text-slate-400 border-slate-700" : "bg-slate-100 hover:bg-slate-200 text-slate-600 border-slate-200"}`}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={isBulkSaving}
+                className="px-5 py-2 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 disabled:cursor-not-allowed text-slate-950 font-bold rounded-xl shadow-lg cursor-pointer"
+              >
+                {isBulkSaving ? "Saving..." : "Save All Players"}
               </button>
             </div>
           </form>

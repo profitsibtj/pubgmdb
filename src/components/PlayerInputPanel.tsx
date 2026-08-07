@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { Match, Team, DailyStatsEntry } from "../types";
 import { RosterPlayer } from "./RosterManager";
-import { getMatchWeekLabel, getTournamentTeamList, canonicalizeTeamName, canonicalizePlayerName } from "../utils";
+import { getMatchWeekLabel, getTournamentTeamList, canonicalizeTeamName, matchRosterPlayer } from "../utils";
 import {
   Users, Save, RefreshCw, Layers, CheckCircle,
   Plus, Trash2
@@ -170,10 +170,12 @@ export const PlayerInputPanel: React.FC<PlayerInputPanelProps> = ({
     return Array.from(names).sort();
   }, [rosterForLeague]);
 
-  // Reconciles a typed name back to the player's current roster name when it matches a
-  // registered previous nickname, so a rename doesn't split that player's stats in two.
+  // Reconciles a typed name (given the team it's being entered under) back to the specific
+  // roster player it belongs to - both resolving a registered previous nickname back to their
+  // current name, and disambiguating two different roster players who share a name by team, so
+  // this record always stores the right person's actual current name.
   const canonicalizePlayer = React.useCallback(
-    (rawName: string) => canonicalizePlayerName(rawName, rosterForLeague),
+    (rawName: string, teamName: string) => matchRosterPlayer(rawName, teamName, rosterForLeague).name,
     [rosterForLeague]
   );
 
@@ -638,7 +640,7 @@ export const PlayerInputPanel: React.FC<PlayerInputPanelProps> = ({
           teamTotalWwcd += playerWwcd;
 
           const playerObj: any = {
-            name: canonicalizePlayer(p.name.trim()),
+            name: canonicalizePlayer(p.name.trim(), teamName),
             role: "Player",
             elims: playerElims,
             placementPoints: playerPlacements,
