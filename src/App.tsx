@@ -734,14 +734,6 @@ export default function App() {
     }
   };
 
-  const handleSetActionPasswordVerified = (verified: boolean) => {
-    setActionPasswordVerified(verified);
-    if (!verified) {
-      setActionPassword("");
-      showToast("Admin mode disabled.", "info");
-    }
-  };
-
   // Save/Edit Matches
   const handleSaveMatch = async (matchData: Match) => {
     const isEdit = !!matchData.id;
@@ -1368,7 +1360,6 @@ export default function App() {
               matches={matches}
               isDarkMode={isDarkMode}
               actionPasswordVerified={actionPasswordVerified}
-              tournaments={tournaments}
             />
             <MatchExplorer
               matches={matches}

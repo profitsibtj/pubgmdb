@@ -25,7 +25,6 @@ interface MatchScheduleProps {
   onViewMatch?: (schedule: ScheduleEntry) => void;
   isDarkMode: boolean;
   actionPasswordVerified: boolean;
-  tournaments?: any[];
 }
 
 type Status = "countdown" | "ongoing" | "finished";
@@ -57,8 +56,7 @@ export const MatchSchedule: React.FC<MatchScheduleProps> = ({
   onViewMatch,
   matches = [],
   isDarkMode,
-  actionPasswordVerified,
-  tournaments = []
+  actionPasswordVerified
 }) => {
   // Ticks once a second so every countdown badge on screen stays live - but only while at least
   // one entry is actually counting down, so the whole card grid isn't re-rendering every second

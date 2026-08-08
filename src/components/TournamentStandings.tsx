@@ -100,8 +100,13 @@ export const TournamentStandings: React.FC<TournamentStandingsProps> = ({ matche
   );
 
   // Team name -> group letter (A-E), for the "Filter Group" control below - empty for a format
-  // "16" preset (single lobby, no groups) so that control stays hidden entirely.
-  const teamGroupMap = useMemo(() => getTeamGroupMap(currentPreset), [currentPreset]);
+  // "16" preset (single lobby, no groups), or when the tournament preset hasn't opted into Group
+  // Standings (Tournament Settings > "Enable Group Standings Filter"), so that control stays
+  // hidden entirely instead of exposing an incomplete/stale group roster as if it were the full one.
+  const teamGroupMap = useMemo(() => {
+    if (!currentPreset?.groupStandingsEnabled) return {};
+    return getTeamGroupMap(currentPreset);
+  }, [currentPreset]);
   const groupsList = useMemo(() => {
     const letters = Array.from(new Set(Object.values(teamGroupMap))).sort();
     return letters.length > 0 ? ["ALL", ...letters] : [];

@@ -50,12 +50,12 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
   const [errorMsg, setErrorMsg] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
 
-  // "This match hasn't happened yet" toggle: saves a lightweight Schedule entry (see Match
-  // Schedule tab) from this same form instead of a full result - one place to add a match either
-  // way, so there's no separate "Add Schedule" screen to remember to use instead. Reuses this
-  // form's own date/time fields rather than asking for them a second time.
-  const [isScheduleOnly, setIsScheduleOnly] = useState(false);
   const [scheduleTeamsInput, setScheduleTeamsInput] = useState("");
+  // Set once a brand-new entry has been deep-linked from a Schedule's "Enter Match Result" button
+  // (matchPrefill) - keeps this form in full-result mode from then on, overriding the date/time
+  // auto-detection below, since that action always means "enter the real result now" regardless
+  // of whether the scheduled time has technically passed yet.
+  const [forceFullResultMode, setForceFullResultMode] = useState(false);
 
   const getTodayDateString = () => {
     const today = new Date();
@@ -76,6 +76,25 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
     map: "Erangel",
     liveLink: ""
   });
+
+  // Auto-detects "hasn't happened yet" straight from the Date/Time fields instead of a separate
+  // manual toggle - a match dated/timed in the future is always a schedule entry, so there's only
+  // one thing to fill in instead of a field plus a checkbox that could disagree with it. No Time
+  // filled in falls back to comparing Date alone, so "today" without a time defaults to a real
+  // result (the common case: entering today's match after it's already been played).
+  const isFutureSchedule = (): boolean => {
+    if (!meta.date) return false;
+    if (meta.time) {
+      const dt = new Date(`${meta.date}T${meta.time}`);
+      if (!Number.isNaN(dt.getTime())) return dt.getTime() > Date.now();
+    }
+    return meta.date > getTodayDateString();
+  };
+
+  // Deep-linking in from "Enter Match Result" (forceFullResultMode) or editing an already-saved
+  // match (editingMatch) always overrides the auto-detection above; editing an existing schedule
+  // entry (editingSchedule) always forces it on, regardless of what its date/time say.
+  const isScheduleOnly = !editingMatch && !!onSaveSchedule && (!!editingSchedule || (!forceFullResultMode && isFutureSchedule()));
 
   // Marks this match as part of the Grand Final stage, kept separate from the
   // overall/regular-season standings for the same league in Standings.
@@ -110,6 +129,13 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
     // used to auto-select and badge this league across Match Standings, Player Stats, Squad
     // Roster, Comparisons, and Drop Zone Simulator. Match Results is intentionally excluded.
     highlighted?: boolean;
+    // Opt-in per tournament: shows the "Filter Group" control on Match Standings, splitting the
+    // table by Group A/B/C/etc instead of always one combined table. Off by default even for a
+    // format with groups configured (20/24/32), since Group A-E's team lists here are only
+    // reliably filled in for tournaments where an admin has actually maintained them - for others,
+    // a stale/incomplete group roster would surface a filter that misleadingly shows only 1-2
+    // teams in a group instead of the real full lineup.
+    groupStandingsEnabled?: boolean;
     teams16Text: string;
     groupAText: string;
     groupBText: string;
@@ -294,6 +320,7 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
   // silently saves every game of the day as "Game 1" unless manually corrected each time.
   React.useEffect(() => {
     if (!matchPrefill) return;
+    setForceFullResultMode(true);
     if (matchPrefill.league) {
       const matched = tournaments.find(t => t.name === matchPrefill.league);
       if (matched) setSelectedTournamentId(matched.id);
@@ -324,7 +351,6 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
     const id = editingSchedule?.id || null;
     if (!editingSchedule || prevEditingScheduleIdRef.current === id) return;
     prevEditingScheduleIdRef.current = id;
-    setIsScheduleOnly(true);
     if (editingSchedule.league) {
       const matched = tournaments.find(t => t.name === editingSchedule.league);
       if (matched) setSelectedTournamentId(matched.id);
@@ -570,12 +596,14 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
     }
   }, [selectedTournamentId, activeTournament?.format, activeTournament?.activeMatchup, activeTournament?.activeGroup, editingMatch]);
 
-  // Auto-fill the Schedule toggle's Participating Teams from this league's currently-configured
-  // lobby/group whenever the "hasn't happened yet" toggle turns on or the league changes - same
-  // team list the full form already auto-populates above, so there's nothing to retype. Still
-  // freely editable afterward (only re-fills on toggle/league change, not on every keystroke).
+  // Auto-fill the schedule-mode Participating Teams from this league's currently-configured
+  // lobby/group whenever auto-detected schedule mode turns on or the league changes - same team
+  // list the full form already auto-populates above, so there's nothing to retype. Still freely
+  // editable afterward (only re-fills on that change, not on every keystroke). Skipped while
+  // editing an existing schedule entry - that entry's own team list was already loaded by the
+  // editingSchedule effect above and shouldn't be replaced with the generic lobby default.
   React.useEffect(() => {
-    if (!isScheduleOnly || !activeTournament) return;
+    if (!isScheduleOnly || !activeTournament || editingSchedule) return;
     const names = getTeamsFromActiveTournament(
       activeTournament,
       activeTournament.format,
@@ -1010,26 +1038,22 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
         </h2>
       </div>
 
-      {/* Not-yet-played toggle: one form for both an upcoming match (-> Schedule) and a finished
-          one (-> full result), so there's no separate screen to remember to use instead. Only
-          offered for a brand-new entry - editing an already-saved result (or an existing schedule
-          entry, locked into schedule mode via editingSchedule) is always the real thing. */}
+      {/* Not-yet-played mode is auto-detected from Date/Time below instead of a manual toggle - a
+          future date/time always saves as a Schedule entry, a today-or-earlier one (or no time at
+          all) always saves as a real result, so there's nothing to remember to check separately.
+          Only shown for a brand-new entry - editing an already-saved result (or an existing
+          schedule entry, locked into schedule mode via editingSchedule) is always the real thing. */}
       {!editingMatch && !editingSchedule && onSaveSchedule && (
-        <label className={`flex items-center gap-2.5 p-3 mb-4 rounded-xl border cursor-pointer transition-all ${
+        <div className={`flex items-center gap-2.5 p-3 mb-4 rounded-xl border text-[11px] font-mono font-bold uppercase ${
           isScheduleOnly
-            ? "bg-amber-500/10 border-amber-500/30"
-            : isDarkMode ? "bg-slate-950/40 border-slate-850" : "bg-slate-50 border-slate-200"
+            ? "bg-amber-500/10 border-amber-500/30 text-amber-500"
+            : isDarkMode ? "bg-slate-950/40 border-slate-850 text-slate-400" : "bg-slate-50 border-slate-200 text-slate-600"
         }`}>
-          <input
-            type="checkbox"
-            checked={isScheduleOnly}
-            onChange={(e) => setIsScheduleOnly(e.target.checked)}
-            className="w-4 h-4 accent-amber-500 cursor-pointer"
-          />
-          <span className={`text-[11px] font-mono font-bold uppercase ${isScheduleOnly ? "text-amber-500" : isDarkMode ? "text-slate-300" : "text-slate-600"}`}>
-            Match ini belum main (simpan sebagai jadwal dulu)
-          </span>
-        </label>
+          <CalendarClock className="w-4 h-4 shrink-0" />
+          {isScheduleOnly
+            ? "Otomatis disimpan sebagai jadwal - Date/Time yang diisi masih di masa depan"
+            : "Otomatis disimpan sebagai hasil match - isi Date/Time yang masih di masa depan untuk jadikan ini jadwal"}
+        </div>
       )}
 
       {isScheduleOnly && !editingMatch ? (
@@ -1408,6 +1432,21 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
                       <span className="text-[10px] font-mono font-bold text-amber-500 uppercase tracking-wider">Highlight This Tournament</span>
                     </label>
                     <p className="text-[9px] text-slate-500 mt-2 leading-relaxed">Marks this league as the current/featured one, auto-selected and badged across Match Standings, Player Stats, Squad Roster, Comparisons, and Drop Zone Simulator. Only one tournament should be highlighted at a time.</p>
+                  </div>
+
+                  {/* Group Standings filter: opt-in per tournament, since it depends on Group A-E's
+                      team lists above actually being kept up to date - not every league bothers. */}
+                  <div className="bg-slate-950/20 p-4 rounded-xl border border-slate-850/60">
+                    <label className="flex items-center gap-2.5 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={!!activeTournament?.groupStandingsEnabled}
+                        onChange={(e) => updateActiveTournament({ groupStandingsEnabled: e.target.checked })}
+                        className="w-4 h-4 accent-amber-500 cursor-pointer shrink-0"
+                      />
+                      <span className="text-[10px] font-mono font-bold text-amber-500 uppercase tracking-wider">Enable Group Standings Filter</span>
+                    </label>
+                    <p className="text-[9px] text-slate-500 mt-2 leading-relaxed">Adds a "Filter Group" control on Match Standings to split the table by Group A/B/C/etc. Only turn this on once Group A-E's team lists above are fully filled in and kept up to date - otherwise a group will misleadingly show just the 1-2 teams that happen to be listed, not the real full lineup.</p>
                   </div>
 
                   {/* League Rank Points: opt-in per tournament, not every league uses this */}

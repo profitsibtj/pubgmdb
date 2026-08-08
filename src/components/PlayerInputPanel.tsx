@@ -170,6 +170,22 @@ export const PlayerInputPanel: React.FC<PlayerInputPanelProps> = ({
     return Array.from(names).sort();
   }, [rosterForLeague]);
 
+  // Typed/pasted name (current name or a registered previous nickname) -> that roster player's
+  // team, used to auto-fill the Team cell so it doesn't have to be typed twice. A name shared by
+  // two different roster players on different teams (see matchRosterPlayer) maps to null instead -
+  // ambiguous, so the Team field is left for the admin to fill in by hand rather than guessing.
+  const nameToTeamMap = useMemo(() => {
+    const map: Record<string, string | null> = {};
+    rosterForLeague.forEach(r => {
+      const names = [r.name.trim().toLowerCase(), ...(r.previousNames || []).map(pn => pn.trim().toLowerCase())];
+      names.forEach(n => {
+        if (!n) return;
+        map[n] = n in map ? null : r.team;
+      });
+    });
+    return map;
+  }, [rosterForLeague]);
+
   // Reconciles a typed name (given the team it's being entered under) back to the specific
   // roster player it belongs to - both resolving a registered previous nickname back to their
   // current name, and disambiguating two different roster players who share a name by team, so
@@ -494,14 +510,17 @@ export const PlayerInputPanel: React.FC<PlayerInputPanelProps> = ({
     setFlatPlayers(prev => prev.filter((_, i) => i !== idx));
   };
 
-  // Update specific cell values
+  // Update specific cell values. Typing/selecting a name that uniquely matches one roster player
+  // also auto-fills that row's Team, so it doesn't need typing a second time.
   const handleUpdatePlayerCell = (idx: number, field: "name" | "team", value: string) => {
     setFlatPlayers(prev => {
       const next = [...prev];
-      next[idx] = {
-        ...next[idx],
-        [field]: value
-      };
+      const updated = { ...next[idx], [field]: value };
+      if (field === "name") {
+        const matchedTeam = nameToTeamMap[value.trim().toLowerCase()];
+        if (matchedTeam) updated.team = matchedTeam;
+      }
+      next[idx] = updated;
       return next;
     });
   };
@@ -567,6 +586,8 @@ export const PlayerInputPanel: React.FC<PlayerInputPanelProps> = ({
 
           if (targetCol.key === "name") {
             targetRow.name = value;
+            const matchedTeam = nameToTeamMap[value.trim().toLowerCase()];
+            if (matchedTeam) targetRow.team = matchedTeam;
           } else if (targetCol.key === "team") {
             targetRow.team = value;
           } else if (targetCol.type !== "number") {
