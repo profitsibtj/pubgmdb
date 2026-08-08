@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from "react";
 import { Match } from "../types";
-import { calculateLeagueRankStandings, getTournamentTeamList, canonicalizeTeamName } from "../utils";
+import { calculateLeagueRankStandings, getTournamentTeamList, getTeamGroupMap, canonicalizeTeamName } from "../utils";
 import {
   Trophy, Star, Calendar, Search, BarChart2
 } from "lucide-react";
@@ -16,6 +16,7 @@ export const TournamentStandings: React.FC<TournamentStandingsProps> = ({ matche
   const [selectedMapFilter, setSelectedMapFilter] = useState<string>("ALL");
   const [selectedWeekFilter, setSelectedWeekFilter] = useState<string>("ALL");
   const [selectedDayFilter, setSelectedDayFilter] = useState<string>("ALL");
+  const [selectedGroupFilter, setSelectedGroupFilter] = useState<string>("ALL");
   const [teamSearchTerm, setTeamSearchTerm] = useState<string>("All");
   const [selectedTeamDetail, setSelectedTeamDetail] = useState<string | null>(null);
 
@@ -97,6 +98,14 @@ export const TournamentStandings: React.FC<TournamentStandingsProps> = ({ matche
     (rawName: string) => canonicalizeTeamName(rawName, canonicalTeamList, currentPreset?.teamAbbreviations),
     [canonicalTeamList, currentPreset]
   );
+
+  // Team name -> group letter (A-E), for the "Filter Group" control below - empty for a format
+  // "16" preset (single lobby, no groups) so that control stays hidden entirely.
+  const teamGroupMap = useMemo(() => getTeamGroupMap(currentPreset), [currentPreset]);
+  const groupsList = useMemo(() => {
+    const letters = Array.from(new Set(Object.values(teamGroupMap))).sort();
+    return letters.length > 0 ? ["ALL", ...letters] : [];
+  }, [teamGroupMap]);
 
   // League Rank Points standings: only computed/shown when this tournament preset has it enabled
   const leagueRankStandings = useMemo(() => {
@@ -190,13 +199,15 @@ export const TournamentStandings: React.FC<TournamentStandingsProps> = ({ matche
     setSelectedMapFilter("ALL");
     setSelectedWeekFilter("ALL");
     setSelectedDayFilter("ALL");
+    setSelectedGroupFilter("ALL");
     setSelectedTeamDetail(null);
   }, [selectedTournament]);
 
-  // Switching between Overall/Final resets week+day filters since the available options differ per stage
+  // Switching between Overall/Final resets week+day+group filters since the available options differ per stage
   React.useEffect(() => {
     setSelectedWeekFilter("ALL");
     setSelectedDayFilter("ALL");
+    setSelectedGroupFilter("ALL");
   }, [viewMode]);
 
   // Calculate Standings
@@ -235,6 +246,7 @@ export const TournamentStandings: React.FC<TournamentStandingsProps> = ({ matche
       match.teams.forEach(t => {
         const teamName = canonicalizeTeam(t.name.trim());
         if (!teamName) return;
+        if (selectedGroupFilter !== "ALL" && teamGroupMap[teamName] !== selectedGroupFilter) return;
 
         if (!teamMap[teamName]) {
           teamMap[teamName] = {
@@ -316,7 +328,7 @@ export const TournamentStandings: React.FC<TournamentStandingsProps> = ({ matche
       // 5. Matches Played Ascending
       return a.matchesPlayed - b.matchesPlayed;
     });
-  }, [matches, selectedTournament, selectedMapFilter, selectedWeekFilter, selectedDayFilter, viewMode, activeTiebreaker, canonicalizeTeam]);
+  }, [matches, selectedTournament, selectedMapFilter, selectedWeekFilter, selectedDayFilter, selectedGroupFilter, viewMode, activeTiebreaker, canonicalizeTeam, teamGroupMap]);
 
   // Filter standings by search term (if user searches for a specific team)
   const filteredStandings = useMemo(() => {
@@ -464,6 +476,23 @@ export const TournamentStandings: React.FC<TournamentStandingsProps> = ({ matche
                   >
                     {weeksList.map(w => (
                       <option key={w} value={w}>{w === "ALL" ? "All Weeks (All)" : w}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {viewMode !== "league" && groupsList.length > 0 && (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-slate-500 text-[9px] font-bold uppercase shrink-0">Filter Group:</span>
+                  <select
+                    value={selectedGroupFilter}
+                    onChange={(e) => setSelectedGroupFilter(e.target.value)}
+                    className={`p-2 rounded-xl border font-bold cursor-pointer text-xs focus:ring-1 focus:ring-amber-500 outline-none ${
+                      isDarkMode ? "bg-slate-950 border-slate-850 text-white" : "bg-white border-slate-300 text-slate-900"
+                    }`}
+                  >
+                    {groupsList.map(g => (
+                      <option key={g} value={g}>{g === "ALL" ? "All Groups (All)" : `Group ${g}`}</option>
                     ))}
                   </select>
                 </div>

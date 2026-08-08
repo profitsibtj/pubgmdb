@@ -15,14 +15,25 @@ export const HeadToHead: React.FC<HeadToHeadProps> = ({ matches, isDarkMode, tou
   const [compType, setCompType] = useState<"player" | "team">("player");
   const [target1, setTarget1] = useState("");
   const [target2, setTarget2] = useState("");
+  // "ALL" aggregates across every league (the original/default behavior) - otherwise scopes both
+  // the radar chart and stat bars to just the matches recorded under this one league.
+  const [selectedLeague, setSelectedLeague] = useState("ALL");
 
   // The tournament an admin has manually marked "highlighted" (Add New Match Data > Tournament
-  // Settings), if any. Comparisons has no per-league filter (it compares across every league at
-  // once), so this is shown as a plain badge rather than used to pre-select anything.
+  // Settings), if any - starred in the league filter dropdown below.
   const highlightedLeagueName = useMemo(() => {
     const highlighted = (tournaments || []).find((t: any) => t.highlighted);
     return highlighted?.name || null;
   }, [tournaments]);
+
+  // Leagues offered in the filter dropdown - tournament presets plus any league name that only
+  // shows up on a match (so an unlisted/legacy league is still selectable).
+  const uniqueLeagues = useMemo(() => {
+    const leaguesSet = new Set<string>();
+    (tournaments || []).forEach((t: any) => { if (t.name) leaguesSet.add(t.name.trim()); });
+    matches.forEach((m) => { if (m.league) leaguesSet.add(m.league.trim()); });
+    return Array.from(leaguesSet).sort();
+  }, [tournaments, matches]);
 
   // Resolves a player name (+ the team it was recorded under) back to the specific roster player
   // it belongs to - reconciling a registered previous nickname back to their current name, and
@@ -62,6 +73,7 @@ export const HeadToHead: React.FC<HeadToHeadProps> = ({ matches, isDarkMode, tou
     }} = {};
 
     matches.forEach((m) => {
+      if (selectedLeague !== "ALL" && (m.league || "").trim().toLowerCase() !== selectedLeague.toLowerCase()) return;
       // Player-level data only ever comes from Daily/Weekly Stats records (Player Input Panel) -
       // AddMatchForm has no player-level UI, teams there always have an empty players array.
       // Daily/weekly records also use different semantics: matchesPlayed/wwcdCount are explicit
@@ -114,7 +126,7 @@ export const HeadToHead: React.FC<HeadToHeadProps> = ({ matches, isDarkMode, tou
       avgAssists: p.matches > 0 ? Math.round((p.assists / p.matches) * 10) / 10 : 0,
       wwcdRate: p.matches > 0 ? Math.round((p.wwcd / p.matches) * 100) : 0
     }));
-  }, [matches, canonicalizePlayerForMatch]);
+  }, [matches, canonicalizePlayerForMatch, selectedLeague]);
 
   // Two roster players can legitimately share a display name (see matchRosterPlayer) - flagged
   // here so the picker below can tell them apart by team instead of showing two identical rows.
@@ -160,6 +172,7 @@ export const HeadToHead: React.FC<HeadToHeadProps> = ({ matches, isDarkMode, tou
 
     matches.forEach((m) => {
       if (m.isDailyStats) return;
+      if (selectedLeague !== "ALL" && (m.league || "").trim().toLowerCase() !== selectedLeague.toLowerCase()) return;
       (m.teams || []).forEach((t) => {
         const name = canonicalizeTeamForMatch(t.name || "", m.league || "");
         if (!name) return;
@@ -186,7 +199,7 @@ export const HeadToHead: React.FC<HeadToHeadProps> = ({ matches, isDarkMode, tou
       wwcdRate: t.matches > 0 ? Math.round((t.wwcd / t.matches) * 100) : 0,
       top4Rate: t.matches > 0 ? Math.round((t.top4 / t.matches) * 100) : 0
     }));
-  }, [matches, canonicalizeTeamForMatch]);
+  }, [matches, canonicalizeTeamForMatch, selectedLeague]);
 
   const activeData = compType === "player" ? playersData : teamsData;
 
@@ -256,6 +269,22 @@ export const HeadToHead: React.FC<HeadToHeadProps> = ({ matches, isDarkMode, tou
 
         {/* Dynamic selectors */}
         <div className="flex flex-wrap items-center gap-3 w-full md:w-auto text-xs">
+          <div className="flex-1 md:flex-none">
+            <span className="text-[10px] text-slate-500 uppercase font-bold block mb-1">LEAGUE</span>
+            <select
+              value={selectedLeague}
+              onChange={(e) => setSelectedLeague(e.target.value)}
+              className={`w-full p-2 rounded-xl border font-bold cursor-pointer ${
+                isDarkMode ? "bg-slate-950 border-slate-800 text-slate-200" : "bg-white border-slate-300 text-slate-700"
+              }`}
+            >
+              <option value="ALL">-- ALL TIME --</option>
+              {uniqueLeagues.map((l) => (
+                <option key={l} value={l}>{l === highlightedLeagueName ? `★ ${l}` : l}</option>
+              ))}
+            </select>
+          </div>
+
           <div className="flex-1 md:flex-none">
             <span className="text-[10px] text-slate-500 uppercase font-bold block mb-1">COMPETITOR 1</span>
             <select

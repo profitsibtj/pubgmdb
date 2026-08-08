@@ -435,6 +435,20 @@ export default function App() {
       : undefined;
     setMatchPrefill({ league: schedule.league, map: schedule.map, date: dateStr, matchCode: schedule.matchCode });
     setScheduleToFinishOnSaveId(schedule.id || null);
+    setEditingScheduleEntry(null);
+    setAdminSubTab("addMatch");
+    setActiveTab("admin");
+  };
+
+  // Deep-link from a Match Schedule entry's "Edit" (pencil) button into Add New Match Data's own
+  // schedule-only mode, instead of Match Schedule having its own separate edit form - one place to
+  // create or edit a not-yet-played match, so nothing needs entering twice.
+  const [editingScheduleEntry, setEditingScheduleEntry] = useState<ScheduleEntry | null>(null);
+
+  const handleEditScheduleEntry = (schedule: ScheduleEntry) => {
+    setEditingScheduleEntry(schedule);
+    setMatchPrefill(null);
+    setScheduleToFinishOnSaveId(null);
     setAdminSubTab("addMatch");
     setActiveTab("admin");
   };
@@ -1349,6 +1363,7 @@ export default function App() {
               onSaveSchedule={handleSaveSchedule}
               onDeleteSchedule={handleDeleteSchedule}
               onEnterResults={handleEnterScheduleResults}
+              onEditSchedule={handleEditScheduleEntry}
               onViewMatch={handleViewScheduledMatch}
               matches={matches}
               isDarkMode={isDarkMode}
@@ -1513,6 +1528,7 @@ export default function App() {
                     setActiveTab("matches");
                     setMatchPrefill(null);
                     setScheduleToFinishOnSaveId(null);
+                    setEditingScheduleEntry(null);
                   }}
                   isDarkMode={isDarkMode}
                   editingMatch={null}
@@ -1523,6 +1539,7 @@ export default function App() {
                   matchPrefill={matchPrefill}
                   onConsumedMatchPrefill={() => setMatchPrefill(null)}
                   onSaveSchedule={handleSaveSchedule}
+                  editingSchedule={editingScheduleEntry}
                 />
               )}
             </div>

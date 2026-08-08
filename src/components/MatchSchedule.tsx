@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { ScheduleEntry, Match } from "../types";
-import { getTournamentTeamList, canonicalizeTeamName } from "../utils";
 import {
-  Trash2, Edit2, X, Clock, Radio, CheckCircle2, Play, CalendarClock, RefreshCw, Flag, ClipboardList, History
+  Trash2, Edit2, Clock, Radio, CheckCircle2, Play, CalendarClock, RefreshCw, Flag, ClipboardList, History
 } from "lucide-react";
 
 interface MatchScheduleProps {
@@ -14,6 +13,10 @@ interface MatchScheduleProps {
   // entering the real results doesn't mean retyping what was already set up here. That save then
   // auto-marks this entry Finished - no separate manual step needed for the common case.
   onEnterResults?: (schedule: ScheduleEntry) => void;
+  // Deep-links into Add New Match Data (schedule-only mode) with this entry's own data prefilled,
+  // so editing an upcoming/not-yet-played entry happens in the same place it was created instead
+  // of this component's own separate form.
+  onEditSchedule?: (schedule: ScheduleEntry) => void;
   // Match results entered before this Schedule feature existed (or entered directly, bypassing it)
   // have no corresponding schedule entry - used to offer a one-off "backfill" so they still show up
   // here as Finished, instead of only ever existing in Match Results.
@@ -26,8 +29,6 @@ interface MatchScheduleProps {
 }
 
 type Status = "countdown" | "ongoing" | "finished";
-
-const MAPS = ["Erangel", "Miramar", "Sanhok", "Rondo"];
 
 const getStatus = (s: ScheduleEntry, nowMs: number): Status => {
   if (s.isFinished) return "finished";
@@ -46,31 +47,13 @@ const formatCountdown = (ms: number): string => {
   return days > 0 ? `${days}d ${pad(hours)}:${pad(minutes)}:${pad(seconds)}` : `${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
 };
 
-// datetime-local inputs need "YYYY-MM-DDTHH:mm" in local time, with no timezone suffix.
-const toDatetimeLocalValue = (iso: string): string => {
-  if (!iso) return "";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-};
-
-const emptyForm = (defaultLeague: string): ScheduleEntry => ({
-  league: defaultLeague,
-  matchCode: "",
-  teams: [],
-  map: "Erangel",
-  scheduledAt: "",
-  liveLink: "",
-  isFinished: false
-});
-
 export const MatchSchedule: React.FC<MatchScheduleProps> = ({
   schedules,
   isLoading,
   onSaveSchedule,
   onDeleteSchedule,
   onEnterResults,
+  onEditSchedule,
   onViewMatch,
   matches = [],
   isDarkMode,
@@ -88,18 +71,10 @@ export const MatchSchedule: React.FC<MatchScheduleProps> = ({
     return () => clearInterval(interval);
   }, [hasCountdownEntry]);
 
-  const defaultLeague = tournaments[0]?.name || "";
-  const [isFormOpen, setIsFormOpen] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [form, setForm] = useState<ScheduleEntry>(emptyForm(defaultLeague));
-  const [teamsInput, setTeamsInput] = useState("");
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [showFinished, setShowFinished] = useState(false);
   const [backfillTime, setBackfillTime] = useState("18:00");
   const [isBackfilling, setIsBackfilling] = useState(false);
-
-  const leaguePreset = useMemo(() => tournaments.find(t => t.name === form.league), [tournaments, form.league]);
-  const teamsForLeague = useMemo(() => getTournamentTeamList(leaguePreset), [leaguePreset]);
 
   // Match results with no corresponding schedule entry (same league + date match used everywhere
   // else this pairing matters) - candidates for the one-off backfill below.
@@ -126,23 +101,6 @@ export const MatchSchedule: React.FC<MatchScheduleProps> = ({
     } finally {
       setIsBackfilling(false);
     }
-  };
-
-  const handleOpenEditForm = (s: ScheduleEntry) => {
-    setEditingId(s.id || null);
-    setForm({ ...s, scheduledAt: toDatetimeLocalValue(s.scheduledAt) });
-    setTeamsInput((s.teams || []).join(", "));
-    setIsFormOpen(true);
-  };
-
-  const handleFormSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const teams = teamsInput.split(",").map(t => t.trim()).filter(Boolean)
-      .map(t => canonicalizeTeamName(t, teamsForLeague, leaguePreset?.teamAbbreviations));
-    const scheduledAtIso = form.scheduledAt ? new Date(form.scheduledAt).toISOString() : "";
-    await onSaveSchedule({ ...form, id: editingId || undefined, teams, scheduledAt: scheduledAtIso });
-    setIsFormOpen(false);
-    setEditingId(null);
   };
 
   const handleMarkFinished = async (s: ScheduleEntry) => {
@@ -224,121 +182,6 @@ export const MatchSchedule: React.FC<MatchScheduleProps> = ({
           )}
         </div>
       </div>
-
-      {/* ADD / EDIT FORM */}
-      {isFormOpen && (
-        <div className={`p-6 rounded-2xl shadow-xl transition-all ${
-          isDarkMode ? "bg-slate-950/90 border border-amber-500/20 text-slate-100" : "bg-white border border-amber-500/50 text-slate-900"
-        }`}>
-          <div className={`flex justify-between items-center border-b pb-3 mb-4 ${isDarkMode ? "border-slate-900" : "border-slate-200"}`}>
-            <h3 className="text-xs font-bold uppercase tracking-wider text-amber-500 flex items-center gap-1.5">
-              <CalendarClock className="w-4 h-4" />
-              Edit Schedule
-            </h3>
-            <button
-              onClick={() => { setIsFormOpen(false); setEditingId(null); }}
-              className="p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition-all cursor-pointer"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-
-          <form onSubmit={handleFormSubmit} className="space-y-4 text-xs">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <label className="font-semibold block text-slate-400 uppercase text-[10px]">League / Tournament:</label>
-                <select
-                  value={form.league}
-                  onChange={(e) => setForm(prev => ({ ...prev, league: e.target.value }))}
-                  className={`w-full rounded-lg p-2.5 text-sm focus:outline-none border focus:ring-1 focus:ring-amber-500 cursor-pointer ${isDarkMode ? "bg-slate-900 border-slate-800 text-slate-100" : "bg-slate-50 border-slate-200 text-slate-900"}`}
-                >
-                  <option value="">-- Select League / Tournament --</option>
-                  {tournaments.map((t) => (
-                    <option key={t.id || t.name} value={t.name}>{t.name}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="font-semibold block text-slate-400 uppercase text-[10px]">Title (e.g. Week 1 Day 2):</label>
-                <input
-                  type="text"
-                  value={form.matchCode}
-                  onChange={(e) => setForm(prev => ({ ...prev, matchCode: e.target.value }))}
-                  className={`w-full rounded-lg p-2.5 text-sm focus:outline-none border focus:ring-1 focus:ring-amber-500 ${isDarkMode ? "bg-slate-900 border-slate-800 text-slate-100" : "bg-slate-50 border-slate-200 text-slate-900"}`}
-                  placeholder="Week 1 Day 2"
-                  required
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <label className="font-semibold block text-slate-400 uppercase text-[10px]">Scheduled Start:</label>
-                <input
-                  type="datetime-local"
-                  value={form.scheduledAt}
-                  onChange={(e) => setForm(prev => ({ ...prev, scheduledAt: e.target.value }))}
-                  className={`w-full rounded-lg p-2.5 text-sm focus:outline-none border focus:ring-1 focus:ring-amber-500 ${isDarkMode ? "bg-slate-900 border-slate-800 text-slate-100" : "bg-slate-50 border-slate-200 text-slate-900"}`}
-                  required
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="font-semibold block text-slate-400 uppercase text-[10px]">Map:</label>
-                <select
-                  value={form.map}
-                  onChange={(e) => setForm(prev => ({ ...prev, map: e.target.value }))}
-                  className={`w-full rounded-lg p-2.5 text-sm focus:outline-none border focus:ring-1 focus:ring-amber-500 cursor-pointer ${isDarkMode ? "bg-slate-900 border-slate-800 text-slate-100" : "bg-slate-50 border-slate-200 text-slate-900"}`}
-                >
-                  {MAPS.map(m => (
-                    <option key={m} value={m}>{m}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="font-semibold block text-slate-400 uppercase text-[10px]">Participating Teams (optional, comma-separated):</label>
-              <input
-                type="text"
-                value={teamsInput}
-                onChange={(e) => setTeamsInput(e.target.value)}
-                placeholder={teamsForLeague.length > 0 ? teamsForLeague.slice(0, 3).join(", ") + ", ..." : "Team A, Team B, ..."}
-                className={`w-full rounded-lg p-2.5 text-sm focus:outline-none border focus:ring-1 focus:ring-amber-500 ${isDarkMode ? "bg-slate-900 border-slate-800 text-slate-100" : "bg-slate-50 border-slate-200 text-slate-900"}`}
-              />
-              <p className="text-[9px] text-slate-500">Leave blank for a full-lobby day where the lineup isn't finalized yet.</p>
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="font-semibold block text-slate-400 uppercase text-[10px]">Live Stream Link (optional):</label>
-              <input
-                type="text"
-                value={form.liveLink}
-                onChange={(e) => setForm(prev => ({ ...prev, liveLink: e.target.value }))}
-                placeholder="https://youtube.com/..."
-                className={`w-full rounded-lg p-2.5 text-sm focus:outline-none border focus:ring-1 focus:ring-amber-500 ${isDarkMode ? "bg-slate-900 border-slate-800 text-slate-100" : "bg-slate-50 border-slate-200 text-slate-900"}`}
-              />
-            </div>
-
-            <div className="flex justify-end gap-3 pt-2">
-              <button
-                type="button"
-                onClick={() => { setIsFormOpen(false); setEditingId(null); }}
-                className={`px-4 py-2 border rounded-xl cursor-pointer ${isDarkMode ? "bg-slate-800 hover:bg-slate-700 text-slate-400 border-slate-700" : "bg-slate-100 hover:bg-slate-200 text-slate-600 border-slate-200"}`}
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                className="px-5 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl shadow-lg cursor-pointer"
-              >
-                Save Schedule
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
 
       {/* SCHEDULE LIST */}
       {isLoading ? (
@@ -473,16 +316,18 @@ export const MatchSchedule: React.FC<MatchScheduleProps> = ({
                           Mark as Finished
                         </button>
                       )}
-                      <button
-                        type="button"
-                        onClick={() => handleOpenEditForm(s)}
-                        className={`p-1.5 rounded-lg border cursor-pointer transition-all ${
-                          isDarkMode ? "bg-slate-950 hover:bg-slate-850 text-slate-300 border-slate-800" : "bg-white hover:bg-slate-100 text-slate-600 border-slate-200"
-                        }`}
-                        title="Edit schedule entry"
-                      >
-                        <Edit2 className="w-3.5 h-3.5 shrink-0 text-amber-500" />
-                      </button>
+                      {onEditSchedule && (
+                        <button
+                          type="button"
+                          onClick={() => onEditSchedule(s)}
+                          className={`p-1.5 rounded-lg border cursor-pointer transition-all ${
+                            isDarkMode ? "bg-slate-950 hover:bg-slate-850 text-slate-300 border-slate-800" : "bg-white hover:bg-slate-100 text-slate-600 border-slate-200"
+                          }`}
+                          title="Opens Add New Match Data with this entry's own data prefilled, in schedule-only mode"
+                        >
+                          <Edit2 className="w-3.5 h-3.5 shrink-0 text-amber-500" />
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={() => setDeleteConfirmId(s.id || null)}

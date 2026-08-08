@@ -24,6 +24,12 @@ interface AddMatchFormProps {
   // Lets a brand-new match be saved as a not-yet-played Schedule entry instead of a full result,
   // from this same form - one place to add a match either way, instead of a separate screen.
   onSaveSchedule?: (schedule: ScheduleEntry) => Promise<void>;
+  // Deep-link from a Match Schedule entry's "Edit" action - reopens this same not-yet-played entry
+  // here (in schedule-only mode, locked) instead of Match Schedule's own separate edit screen, so
+  // there's only ever one place to create or edit a scheduled match. Stays set for the whole
+  // editing session (mirrors editingMatch) - the caller clears it via onClose. Saving updates this
+  // same entry (by id) instead of creating a duplicate.
+  editingSchedule?: ScheduleEntry | null;
 }
 
 export const AddMatchForm: React.FC<AddMatchFormProps> = ({
@@ -37,7 +43,8 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
   onUpdateTournaments,
   matchPrefill,
   onConsumedMatchPrefill,
-  onSaveSchedule
+  onSaveSchedule,
+  editingSchedule
 }) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
@@ -259,6 +266,27 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
 
   const activeTournament = tournaments.find(t => t.id === selectedTournamentId) || tournaments[0];
 
+  // Keep selectedTournamentId in sync if it's not found in the current tournament list - and the
+  // first time a highlighted tournament becomes available (the real tournaments list can arrive
+  // async from the server after this form's own local/default state is set up), prefer it over
+  // tournaments[0] so this form defaults to the admin's manually-marked current tournament
+  // instead of whichever preset just happens to be first. Runs before the "editing prefill" effect
+  // below, so opening this form to edit an existing match still overrides this with that match's
+  // own league.
+  const hasAppliedHighlightDefault = React.useRef(false);
+  React.useEffect(() => {
+    if (tournaments.length === 0) return;
+    const highlighted = tournaments.find(t => t.highlighted);
+    if (!hasAppliedHighlightDefault.current && highlighted) {
+      hasAppliedHighlightDefault.current = true;
+      setSelectedTournamentId(highlighted.id);
+      return;
+    }
+    if (!tournaments.some(t => t.id === selectedTournamentId)) {
+      setSelectedTournamentId(tournaments[0].id);
+    }
+  }, [tournaments]);
+
   // Consume a one-time prefill deep-linked from a Match Schedule entry: pick the matching
   // tournament (which drives the auto-populated team list) and seed the remaining meta fields.
   // A schedule entry only carries a date/time, never a game number - Game/Match No is left to
@@ -284,6 +312,36 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
     }));
     if (onConsumedMatchPrefill) onConsumedMatchPrefill();
   }, [matchPrefill]);
+
+  // Deep-link from a Match Schedule entry's "Edit" action: load that entry's own data into the
+  // schedule-only fields (locked into schedule mode below) instead of Match Schedule's own
+  // separate edit form, so there's one place to create or edit a not-yet-played match. Stays
+  // applied for as long as editingSchedule is set (the parent clears it via onClose) - guarded by
+  // id here so it doesn't re-stomp in-progress edits if the parent's schedules list happens to
+  // re-render with a new object for the same entry.
+  const prevEditingScheduleIdRef = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    const id = editingSchedule?.id || null;
+    if (!editingSchedule || prevEditingScheduleIdRef.current === id) return;
+    prevEditingScheduleIdRef.current = id;
+    setIsScheduleOnly(true);
+    if (editingSchedule.league) {
+      const matched = tournaments.find(t => t.name === editingSchedule.league);
+      if (matched) setSelectedTournamentId(matched.id);
+    }
+    const scheduledDate = editingSchedule.scheduledAt ? new Date(editingSchedule.scheduledAt) : null;
+    const validDate = !!scheduledDate && !Number.isNaN(scheduledDate.getTime());
+    const pad = (n: number) => String(n).padStart(2, "0");
+    setMeta(prev => ({
+      ...prev,
+      matchCode: editingSchedule.matchCode || "",
+      ...(validDate ? { date: `${scheduledDate!.getFullYear()}-${pad(scheduledDate!.getMonth() + 1)}-${pad(scheduledDate!.getDate())}` } : {}),
+      time: validDate ? `${pad(scheduledDate!.getHours())}:${pad(scheduledDate!.getMinutes())}` : "",
+      ...(editingSchedule.map ? { map: editingSchedule.map } : {}),
+      liveLink: editingSchedule.liveLink || ""
+    }));
+    setScheduleTeamsInput((editingSchedule.teams || []).join(", "));
+  }, [editingSchedule, tournaments]);
 
   const activeWeek = activeTournament?.activeWeek || "1";
 
@@ -871,15 +929,16 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
         : "";
 
       await onSaveSchedule({
+        id: editingSchedule?.id,
         league: (activeTournament?.name || meta.league).trim(),
         matchCode: meta.matchCode.trim(),
         teams,
         map: meta.map,
         scheduledAt: scheduledAtIso,
         liveLink: meta.liveLink.trim(),
-        isFinished: false
+        isFinished: editingSchedule?.isFinished ?? false
       });
-      setSuccessMsg("Match scheduled successfully!");
+      setSuccessMsg(editingSchedule ? "Schedule updated successfully!" : "Match scheduled successfully!");
       setTimeout(() => onClose(), 1200);
     } catch (err: any) {
       console.error(err);
@@ -947,14 +1006,15 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
     <div className={`p-6 rounded-2xl shadow-xl transition-all ${isDarkMode ? "bg-slate-900/50" : "bg-white border border-slate-200"}`}>
       <div className="border-b pb-4 mb-4 border-slate-800">
         <h2 className={`text-lg font-bold font-display uppercase tracking-tight ${isDarkMode ? "text-slate-100" : "text-slate-900"}`}>
-          {editingMatch ? "EDIT DATA MATCH RECORD" : "ADD NEW MATCH DATA"}
+          {editingMatch ? "EDIT DATA MATCH RECORD" : editingSchedule ? "EDIT SCHEDULED MATCH" : "ADD NEW MATCH DATA"}
         </h2>
       </div>
 
       {/* Not-yet-played toggle: one form for both an upcoming match (-> Schedule) and a finished
           one (-> full result), so there's no separate screen to remember to use instead. Only
-          offered for a brand-new entry - editing an already-saved result is always the real thing. */}
-      {!editingMatch && onSaveSchedule && (
+          offered for a brand-new entry - editing an already-saved result (or an existing schedule
+          entry, locked into schedule mode via editingSchedule) is always the real thing. */}
+      {!editingMatch && !editingSchedule && onSaveSchedule && (
         <label className={`flex items-center gap-2.5 p-3 mb-4 rounded-xl border cursor-pointer transition-all ${
           isScheduleOnly
             ? "bg-amber-500/10 border-amber-500/30"
@@ -1089,7 +1149,7 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
               className="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-50 disabled:cursor-not-allowed text-slate-950 font-bold text-xs cursor-pointer transition-all flex items-center gap-2"
             >
               <CalendarClock className="w-4 h-4" />
-              {isSubmitting ? "Saving..." : "Save Schedule"}
+              {isSubmitting ? "Saving..." : editingSchedule ? "Update Schedule" : "Save Schedule"}
             </button>
           </div>
         </form>

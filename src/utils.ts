@@ -116,6 +116,28 @@ export const getTournamentTeamList = (preset: any): string[] => {
   return Array.from(new Set(teamNames));
 };
 
+// Maps each team name in a grouped-format tournament (format "20"/"24"/"32" - format "16" is a
+// single lobby with no groups) to its configured group letter (A-E), for filtering standings/team
+// lists by group. Unioned across every week's group list (groupAText/_w2/_w3, etc.) since most
+// leagues keep the same group all season - a team already found under an earlier letter/week keeps
+// that one even if a later week's wildcard shuffle moves it, so this reflects a team's "home"
+// group rather than tracking week-by-week reshuffles.
+export const getTeamGroupMap = (preset: any): Record<string, string> => {
+  const map: Record<string, string> = {};
+  if (!preset || preset.format === "16" || !preset.format) return map;
+  const letters = ["A", "B", "C", "D", "E"];
+  const suffixes = ["", "_w2", "_w3"];
+  letters.forEach(letter => {
+    suffixes.forEach(suffix => {
+      const text: string = preset[`group${letter}Text${suffix}`] || "";
+      text.split("\n").map(t => t.trim()).filter(Boolean).forEach(team => {
+        if (!map[team]) map[team] = letter;
+      });
+    });
+  });
+  return map;
+};
+
 // Reconciles a raw team-name string (which may be an abbreviation, or differently-cased entry)
 // back to the tournament's canonical team name, using the configured team list plus any
 // registered ABBR mapping (Squad Roster team ABBR). Falls back to the trimmed input unchanged
