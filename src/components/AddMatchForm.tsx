@@ -30,11 +30,16 @@ interface AddMatchFormProps {
   // editing session (mirrors editingMatch) - the caller clears it via onClose. Saving updates this
   // same entry (by id) instead of creating a duplicate.
   editingSchedule?: ScheduleEntry | null;
+  // "Back" button behavior - separate from onClose (which also fires after a successful save, and
+  // for this form's other host, the Edit Match modal, just closes the popup). Falls back to
+  // onClose when not given, so callers that don't need the distinction can skip it.
+  onCancel?: () => void;
 }
 
 export const AddMatchForm: React.FC<AddMatchFormProps> = ({
   onSave,
   onClose,
+  onCancel,
   isDarkMode,
   editingMatch,
   matches = [],
@@ -93,8 +98,32 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
 
   // Deep-linking in from "Enter Match Result" (forceFullResultMode) or editing an already-saved
   // match (editingMatch) always overrides the auto-detection above; editing an existing schedule
-  // entry (editingSchedule) always forces it on, regardless of what its date/time say.
-  const isScheduleOnly = !editingMatch && !!onSaveSchedule && (!!editingSchedule || (!forceFullResultMode && isFutureSchedule()));
+  // entry (editingSchedule) always forces it on, regardless of what its date/time say. Starts
+  // correct immediately for editingSchedule so there's no flash of the wrong form on mount.
+  const [isScheduleOnly, setIsScheduleOnly] = useState(() => !!editingSchedule);
+
+  // Applies the mode above, debounced for the plain auto-detect case: typing a Time fires onChange
+  // more than once as the browser's HH/MM segments fill in (e.g. a transient "21:02" on the way to
+  // "21:20"), and switching which form is rendered mid-keystroke unmounts the focused input,
+  // stealing/misdirecting whatever's still being typed. Waiting for a short pause in typing avoids
+  // that; the forced cases below don't need to wait since they're not driven by fast typing.
+  React.useEffect(() => {
+    if (editingMatch) {
+      setIsScheduleOnly(false);
+      return;
+    }
+    if (editingSchedule) {
+      setIsScheduleOnly(true);
+      return;
+    }
+    if (forceFullResultMode || !onSaveSchedule) {
+      setIsScheduleOnly(false);
+      return;
+    }
+    const timeout = setTimeout(() => setIsScheduleOnly(isFutureSchedule()), 500);
+    return () => clearTimeout(timeout);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [meta.date, meta.time, editingMatch, editingSchedule, forceFullResultMode, onSaveSchedule]);
 
   // Marks this match as part of the Grand Final stage, kept separate from the
   // overall/regular-season standings for the same league in Standings.
@@ -1162,10 +1191,10 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
           <div className="flex justify-end gap-3">
             <button
               type="button"
-              onClick={onClose}
+              onClick={onCancel || onClose}
               className={`px-5 py-2.5 rounded-xl font-bold text-xs cursor-pointer transition-all ${isDarkMode ? "bg-slate-800 hover:bg-slate-700 text-slate-400" : "bg-slate-100 hover:bg-slate-200 text-slate-600"}`}
             >
-              Cancel
+              Back
             </button>
             <button
               type="submit"
@@ -2125,14 +2154,14 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
         <div className="flex gap-3 justify-end pt-3 border-t border-slate-850">
           <button
             type="button"
-            onClick={onClose}
+            onClick={onCancel || onClose}
             className={`px-5 py-2.5 rounded-xl text-xs font-bold font-mono border cursor-pointer transition-all ${
-              isDarkMode 
-                ? "bg-slate-950 hover:bg-slate-900 text-slate-400 border-slate-800" 
+              isDarkMode
+                ? "bg-slate-950 hover:bg-slate-900 text-slate-400 border-slate-800"
                 : "bg-slate-100 hover:bg-slate-200 text-slate-600 border-slate-200"
             }`}
           >
-            Cancel
+            Back
           </button>
           <button
             type="submit"

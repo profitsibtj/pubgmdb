@@ -453,6 +453,12 @@ export default function App() {
     setActiveTab("admin");
   };
 
+  // Bumped to force Add New Match Data (the embedded, non-modal instance) to remount with a blank
+  // slate on "Back" - simpler and more reliable than resetting each of its many internal fields by
+  // hand, and avoids the old behavior of leaving the Admin tab entirely on cancel (landing on
+  // Matches, requiring a click back into Admin to get anywhere).
+  const [addMatchFormResetKey, setAddMatchFormResetKey] = useState(0);
+
   // Deep-link from a finished Match Schedule entry down into its posted result in Match Explorer.
   // Matched by league + date, same pairing used everywhere else a schedule is tied to a match.
   const [matchFocusRequest, setMatchFocusRequest] = useState<{ id: string; token: number } | null>(null);
@@ -1513,6 +1519,7 @@ export default function App() {
                 />
               ) : (
                 <AddMatchForm
+                  key={addMatchFormResetKey}
                   onSave={handleSaveMatch}
                   onClose={() => {
                     setEditingMatch(null);
@@ -1520,6 +1527,12 @@ export default function App() {
                     setMatchPrefill(null);
                     setScheduleToFinishOnSaveId(null);
                     setEditingScheduleEntry(null);
+                  }}
+                  onCancel={() => {
+                    setMatchPrefill(null);
+                    setScheduleToFinishOnSaveId(null);
+                    setEditingScheduleEntry(null);
+                    setAddMatchFormResetKey(k => k + 1);
                   }}
                   isDarkMode={isDarkMode}
                   editingMatch={null}

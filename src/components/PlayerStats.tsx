@@ -74,7 +74,14 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedTeam, setSelectedTeam] = useState("ALL");
   const [selectedLeague, setSelectedLeague] = useState("ALL");
-  const [sortBy, setSortBy] = useState<string>("matchesPlayed");
+  // "ALL" = the whole tournament's combined total (default). Otherwise scopes the table to a
+  // single day/week/tournament-wide record instead of the old side-by-side comparison of every
+  // period at once, which turned into an unreadably wide table for a league with many periods
+  // recorded (e.g. PMPL ID's many daily records).
+  const [periodFilter, setPeriodFilter] = useState<string>("ALL");
+  // Defaults to Total Kills so viewers land on the most-watched stat immediately, without having
+  // to touch the Sort By dropdown themselves - still freely changeable from there afterward.
+  const [sortBy, setSortBy] = useState<string>("elims");
   const [viewMode, setViewMode] = useState<"table" | "grid">("table");
 
   // Admin passcode verification modal state
@@ -101,9 +108,11 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
     records: { league: string; date?: string; week?: string; tournamentWide?: boolean; label: string }[];
   }>({ isOpen: false, playerName: "", records: [] });
 
-  // Reset selected team whenever selected league changes
+  // Reset selected team/period whenever selected league changes - the available periods differ
+  // per league, so a period key from the previous league would otherwise silently match nothing.
   useEffect(() => {
     setSelectedTeam("ALL");
+    setPeriodFilter("ALL");
   }, [selectedLeague]);
 
   // Extract unique competitions list synced with tournament presets in input match log & matches
@@ -235,9 +244,6 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
     return Array.from(map.values()).sort((a, b) => a.sortKey - b.sortKey);
   }, [matches, selectedLeague]);
 
-  // Only worth splitting the table into period columns when there's actually more than one
-  // period to compare - a single period would just duplicate the Total group for no reason.
-  const showPeriodBreakdown = selectedLeague !== "ALL" && periodsForLeague.length > 1;
 
   // Extract dynamic columns from what was actually entered in the Player Input Panel for the
   // selected tournament (via each daily/weekly record's customColumns) - a column that was never
@@ -390,8 +396,34 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
       });
     });
 
+    // Squad Roster is registered per league, so the same real player recorded under two different
+    // tournaments (e.g. "Firen" on RRQ Ryu in both PMPL ID and PMWC) resolves to two different
+    // roster ids above, and would otherwise show up as two separate rows even here in the
+    // combined "ALL" view. Collapse same name+team entries into one merged total instead - scoped
+    // to "ALL" only, so a single league's view (and its Shiro-style same-name-different-team
+    // disambiguation) is completely untouched.
+    const statsById = selectedLeague !== "ALL" ? stats : (() => {
+      const merged: Record<string, any> = {};
+      Object.values(stats).forEach((p: any) => {
+        const key = `${p.name.trim().toLowerCase()}|${(p.teamName || "").trim().toLowerCase()}`;
+        if (!merged[key]) {
+          merged[key] = { ...p, weapons: { ...p.weapons }, matchesList: [...(p.matchesList || [])] };
+          return;
+        }
+        const target = merged[key];
+        Object.entries(p).forEach(([k, v]) => {
+          if (typeof v === "number") target[k] = (target[k] || 0) + v;
+        });
+        target.matchesList = target.matchesList.concat(p.matchesList || []);
+        Object.entries(p.weapons || {}).forEach(([w, count]: [string, any]) => {
+          target.weapons[w] = (target.weapons[w] || 0) + count;
+        });
+      });
+      return merged;
+    })();
+
     // Final calculations
-    const eligiblePlayers = Object.values(stats).filter((p: any) => p.matchesCount > 0);
+    const eligiblePlayers = Object.values(statsById).filter((p: any) => p.matchesCount > 0);
 
     // MVP Score totals: each aspect's league-wide sum, used as the denominator for every player's
     // "share" of that stat. Computed once here instead of per-player.
@@ -438,8 +470,40 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
     });
   }, [matches, selectedLeague, selectedTeam, canonicalizeTeamForMatch, canonicalizePlayerForMatch, mvpFormula]);
 
-  const filteredPlayers = useMemo(() => {
+  // When a specific day/week/tournament-wide period is picked (instead of "ALL"/Keseluruhan),
+  // swap each player's totals for just that one record's numbers and drop anyone who didn't
+  // appear in it - one clean set of columns either way, instead of comparing every period side by
+  // side in one increasingly wide table as a league racks up more recorded days.
+  const periodScopedPlayers = useMemo(() => {
+    if (periodFilter === "ALL") return playerStats;
     return playerStats
+      .map((p: any) => {
+        const bucket = p.periods ? p.periods[periodFilter] : undefined;
+        const matchesCount = bucket?.matchesCount || 0;
+        if (!bucket || matchesCount === 0) return null;
+        const elims = bucket.elims || 0;
+        const damage = bucket.damage || 0;
+        const placementPoints = bucket.placementPoints || 0;
+        return {
+          ...p,
+          ...bucket,
+          matchesCount,
+          avgElims: Math.round((elims / matchesCount) * 10) / 10,
+          avgDamage: Math.round(damage / matchesCount),
+          avgHeals: Math.round(((bucket.heals || 0) / matchesCount) * 10) / 10,
+          avgKnocks: Math.round(((bucket.knocks || 0) / matchesCount) * 10) / 10,
+          wwcdRate: Math.round(((bucket.wwcdCount || 0) / matchesCount) * 100),
+          totalPoints: Math.round((elims + placementPoints) * 10) / 10,
+          // MVP Score is a whole-tournament relative share (each stat's share of the league total)
+          // - not meaningful scoped to a single period, so it's hidden rather than shown misleadingly.
+          mvpScore: null
+        };
+      })
+      .filter((p): p is NonNullable<typeof p> => p !== null);
+  }, [playerStats, periodFilter]);
+
+  const filteredPlayers = useMemo(() => {
+    return periodScopedPlayers
       .filter((p) => {
         const matchesSearch = p.name.toLowerCase().includes(searchTerm.toLowerCase());
         return matchesSearch;
@@ -457,7 +521,7 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
         if (sortBy === "elims") return (b.damage || 0) - (a.damage || 0);
         return 0;
       });
-  }, [playerStats, searchTerm, sortBy]);
+  }, [periodScopedPlayers, searchTerm, sortBy]);
 
   // The gold/crown MVP highlight in the table must mark whoever actually has the highest MVP
   // Score, not just row #1 of whatever column the table happens to be sorted by right now - those
@@ -469,17 +533,18 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
   }, [filteredPlayers]);
 
   // Keep the current sort selection valid if its column disappears (e.g. switching to a
-  // league/team where that stat was never entered)
+  // league/team where that stat was never entered), or if it stops making sense (MVP Score is a
+  // whole-tournament share, not meaningful once scoped to a single day/week via Filter Period)
   useEffect(() => {
     if (sortBy === "matchesPlayed") return;
     if (sortBy === "mvpScore") {
-      if (mvpFormula.length === 0) setSortBy("matchesPlayed");
+      if (mvpFormula.length === 0 || periodFilter !== "ALL") setSortBy("matchesPlayed");
       return;
     }
     if (!dynamicColumns.some((c) => c.key === sortBy)) {
       setSortBy("matchesPlayed");
     }
-  }, [dynamicColumns, sortBy, mvpFormula.length]);
+  }, [dynamicColumns, sortBy, mvpFormula.length, periodFilter]);
 
   const handleDeleteClick = (player: any, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -557,7 +622,7 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
       <div className={`p-5 rounded-2xl flex flex-col gap-4 transition-all ${
         isDarkMode ? "bg-slate-900/50" : "bg-white border border-slate-200 shadow-sm"
       }`}>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
           {/* Player Search Input */}
           <div className="space-y-1">
             <label className="text-[10px] font-mono font-bold text-slate-500 uppercase">SEARCH PRO PLAYER:</label>
@@ -618,6 +683,35 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
             </select>
           </div>
 
+          {/* Period Dropdown - "Keseluruhan" (ALL) is the whole tournament's combined total;
+              otherwise scopes the table to just one recorded day/week/tournament-wide record. */}
+          <div className="space-y-1">
+            <label className="text-[10px] font-mono font-bold text-slate-500 uppercase">VIEW PERIOD:</label>
+            <select
+              value={periodFilter}
+              onChange={(e) => setPeriodFilter(e.target.value)}
+              disabled={selectedLeague === "ALL" || periodsForLeague.length === 0}
+              className={`w-full p-2 rounded-lg text-xs font-mono border focus:outline-none focus:ring-1 focus:ring-amber-500 cursor-pointer transition-all ${
+                selectedLeague === "ALL" || periodsForLeague.length === 0
+                  ? `opacity-50 cursor-not-allowed text-slate-400 ${isDarkMode ? "bg-slate-900" : "bg-slate-100"}`
+                  : isDarkMode ? "bg-slate-950 border-slate-800 text-white" : "bg-slate-50 border-slate-300 text-slate-900"
+              }`}
+            >
+              {selectedLeague === "ALL" ? (
+                <option value="ALL">-- SELECT LEAGUE FIRST --</option>
+              ) : periodsForLeague.length === 0 ? (
+                <option value="ALL">-- NO PERIODS RECORDED --</option>
+              ) : (
+                <>
+                  <option value="ALL">-- KESELURUHAN (TOTAL) --</option>
+                  {periodsForLeague.map((period) => (
+                    <option key={period.key} value={period.key}>{period.label}</option>
+                  ))}
+                </>
+              )}
+            </select>
+          </div>
+
           {/* Sort Selector */}
           <div className="space-y-1">
             <label className="text-[10px] font-mono font-bold text-slate-500 uppercase">SORT BY:</label>
@@ -633,7 +727,7 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
                   {col.key === "matchesPlayed" ? col.label.toUpperCase() : `TOTAL ${col.label.toUpperCase()}`}
                 </option>
               ))}
-              {mvpFormula.length > 0 && (
+              {mvpFormula.length > 0 && periodFilter === "ALL" && (
                 <option value="mvpScore">MVP Score</option>
               )}
             </select>
@@ -705,77 +799,24 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse font-mono text-xs">
                 <thead>
-                  {showPeriodBreakdown ? (
-                    <>
-                      <tr className={`border-b text-[10px] uppercase font-bold tracking-wider ${
-                        isDarkMode ? "bg-slate-900/50 border-slate-800 text-slate-400" : "bg-slate-100 border-slate-200 text-slate-500"
-                      }`}>
-                        <th rowSpan={2} className={`py-3 px-4 text-center w-12 align-bottom sticky left-0 z-10 ${isDarkMode ? "bg-slate-900/50" : "bg-slate-100"}`}>#</th>
-                        <th rowSpan={2} className={`py-3 px-4 align-bottom sticky left-12 z-10 ${isDarkMode ? "bg-slate-900/50" : "bg-slate-100"}`}>Player Name</th>
-                        <th rowSpan={2} className="py-3 px-4 align-bottom">Team</th>
-                        {periodsForLeague.map(period => (
-                          <th
-                            key={period.key}
-                            colSpan={dynamicColumns.length}
-                            className={`py-2 px-2 text-center border-l ${isDarkMode ? "border-slate-800" : "border-slate-200"}`}
-                          >
-                            {period.label}
-                          </th>
-                        ))}
-                        <th
-                          colSpan={dynamicColumns.length}
-                          className={`py-2 px-2 text-center border-l text-amber-500 bg-amber-500/5 ${isDarkMode ? "border-slate-800" : "border-slate-200"}`}
-                        >
-                          Total
-                        </th>
-                        {mvpFormula.length > 0 && (
-                          <th rowSpan={2} className="py-3 px-4 text-center w-24 text-amber-500 align-bottom">MVP Score</th>
-                        )}
-                        {actionPasswordVerified && (
-                          <th rowSpan={2} className="py-3 px-4 text-center w-36 text-red-500 font-extrabold uppercase tracking-wider align-bottom">Admin Actions</th>
-                        )}
-                      </tr>
-                      <tr className={`border-b text-[9px] normal-case font-semibold tracking-wider ${
-                        isDarkMode ? "bg-slate-900/30 border-slate-800 text-slate-500" : "bg-slate-50 border-slate-200 text-slate-500"
-                      }`}>
-                        {periodsForLeague.map(period => dynamicColumns.map((col, ci) => (
-                          <th
-                            key={`${period.key}-${col.key}`}
-                            className={`py-1.5 px-2 text-center min-w-[60px] ${ci === 0 ? `border-l ${isDarkMode ? "border-slate-800" : "border-slate-200"}` : ""}`}
-                          >
-                            {col.label.toUpperCase()}
-                          </th>
-                        )))}
-                        {dynamicColumns.map((col, ci) => (
-                          <th
-                            key={`total-${col.key}`}
-                            className={`py-1.5 px-2 text-center min-w-[60px] text-amber-500 bg-amber-500/5 ${ci === 0 ? `border-l ${isDarkMode ? "border-slate-800" : "border-slate-200"}` : ""}`}
-                          >
-                            {col.label.toUpperCase()}
-                          </th>
-                        ))}
-                      </tr>
-                    </>
-                  ) : (
-                    <tr className={`border-b text-[10px] uppercase font-bold tracking-wider ${
-                      isDarkMode ? "bg-slate-900/50 border-slate-800 text-slate-400" : "bg-slate-100 border-slate-200 text-slate-500"
-                    }`}>
-                      <th className={`py-3 px-4 text-center w-12 sticky left-0 z-10 ${isDarkMode ? "bg-slate-900/50" : "bg-slate-100"}`}>#</th>
-                      <th className={`py-3 px-4 sticky left-12 z-10 ${isDarkMode ? "bg-slate-900/50" : "bg-slate-100"}`}>Player Name</th>
-                      <th className="py-3 px-4">Team</th>
-                      {dynamicColumns.map(col => (
-                        <th key={col.key} className="py-3 px-4 text-center min-w-[80px] uppercase">
-                          {col.label}
-                        </th>
-                      ))}
-                      {mvpFormula.length > 0 && (
-                        <th className="py-3 px-4 text-center w-24 text-amber-500 uppercase">MVP Score</th>
-                      )}
-                      {actionPasswordVerified && (
-                        <th className="py-3 px-4 text-center w-36 text-red-500 font-extrabold uppercase tracking-wider">Admin Actions</th>
-                      )}
-                    </tr>
-                  )}
+                  <tr className={`border-b text-[10px] uppercase font-bold tracking-wider ${
+                    isDarkMode ? "bg-slate-900/50 border-slate-800 text-slate-400" : "bg-slate-100 border-slate-200 text-slate-500"
+                  }`}>
+                    <th className={`py-3 px-4 text-center w-12 sticky left-0 z-10 ${isDarkMode ? "bg-slate-900/50" : "bg-slate-100"}`}>#</th>
+                    <th className={`py-3 px-4 sticky left-12 z-10 ${isDarkMode ? "bg-slate-900/50" : "bg-slate-100"}`}>Player Name</th>
+                    <th className="py-3 px-4">Team</th>
+                    {dynamicColumns.map(col => (
+                      <th key={col.key} className="py-3 px-4 text-center min-w-[80px] uppercase">
+                        {col.label}
+                      </th>
+                    ))}
+                    {mvpFormula.length > 0 && periodFilter === "ALL" && (
+                      <th className="py-3 px-4 text-center w-24 text-amber-500 uppercase">MVP Score</th>
+                    )}
+                    {actionPasswordVerified && (
+                      <th className="py-3 px-4 text-center w-36 text-red-500 font-extrabold uppercase tracking-wider">Admin Actions</th>
+                    )}
+                  </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/30">
                   {filteredPlayers.map((p, index) => {
@@ -810,63 +851,36 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
                           <td className="py-3 px-4 font-semibold text-slate-300 max-w-[160px]">
                             <span className="tracking-tight text-slate-300 line-clamp-2 break-words">{p.teamName || "-"}</span>
                           </td>
-                          {/* Dynamic columns values - per-period breakdown plus a Total group, or
-                              just one Total-with-avg set of columns when there's only one period */}
-                          {showPeriodBreakdown ? (
-                            <>
-                              {periodsForLeague.map(period => dynamicColumns.map((col, ci) => {
-                                const periodStats = (p.periods && p.periods[period.key]) || {};
-                                const val = col.key === "matchesPlayed" ? (periodStats.matchesCount || 0) : (periodStats[col.key] !== undefined ? periodStats[col.key] : 0);
-                                return (
-                                  <td
-                                    key={`${period.key}-${col.key}`}
-                                    className={`py-3 px-2 text-center font-semibold text-slate-400 ${ci === 0 ? `border-l ${isDarkMode ? "border-slate-900/50" : "border-slate-100"}` : ""}`}
-                                  >
-                                    {col.type === "time" ? formatSecondsToTime(val) : val}
-                                  </td>
-                                );
-                              }))}
-                              {dynamicColumns.map((col, ci) => {
-                                const total = col.key === "matchesPlayed" ? p.matchesCount : (p[col.key] !== undefined ? p[col.key] : 0);
-                                return (
-                                  <td
-                                    key={`total-${col.key}`}
-                                    className={`py-3 px-2 text-center bg-amber-500/5 ${ci === 0 ? `border-l ${isDarkMode ? "border-slate-900/50" : "border-slate-100"}` : ""}`}
-                                  >
-                                    <span className="font-extrabold text-amber-400">{col.type === "time" ? formatSecondsToTime(total) : total}</span>
-                                  </td>
-                                );
-                              })}
-                            </>
-                          ) : (
-                            dynamicColumns.map(col => {
-                              if (col.key === "matchesPlayed") {
-                                return (
-                                  <td key={col.key} className="py-3 px-4 text-center font-semibold text-slate-400">
-                                    {p.matchesCount}
-                                  </td>
-                                );
-                              }
-                              const total = p[col.key] !== undefined ? p[col.key] : 0;
-                              const avg = p.matchesCount > 0 ? Math.round((total / p.matchesCount) * 10) / 10 : 0;
+                          {/* Dynamic columns values - the league/team-wide total, or (with a
+                              specific day/week/tournament-wide period picked via Filter Period)
+                              just that one period's numbers instead. */}
+                          {dynamicColumns.map(col => {
+                            if (col.key === "matchesPlayed") {
                               return (
-                                  <td key={col.key} className="py-3 px-4 text-center">
-                                    <span className={`font-extrabold ${
-                                      col.key === "elims" ? "text-slate-200" :
-                                      col.key === "damage" ? "text-teal-400" :
-                                      col.key === "assists" ? "text-indigo-400" :
-                                      "text-amber-400"
-                                    }`}>
-                                      {col.type === "time" ? formatSecondsToTime(total) : total}
-                                    </span>
-                                    <span className="text-[10px] text-slate-500 block">avg: {col.type === "time" ? formatSecondsToTime(avg) : avg}</span>
-                                  </td>
+                                <td key={col.key} className="py-3 px-4 text-center font-semibold text-slate-400">
+                                  {p.matchesCount}
+                                </td>
                               );
-                            })
-                          )}
+                            }
+                            const total = p[col.key] !== undefined ? p[col.key] : 0;
+                            const avg = p.matchesCount > 0 ? Math.round((total / p.matchesCount) * 10) / 10 : 0;
+                            return (
+                                <td key={col.key} className="py-3 px-4 text-center">
+                                  <span className={`font-extrabold ${
+                                    col.key === "elims" ? "text-slate-200" :
+                                    col.key === "damage" ? "text-teal-400" :
+                                    col.key === "assists" ? "text-indigo-400" :
+                                    "text-amber-400"
+                                  }`}>
+                                    {col.type === "time" ? formatSecondsToTime(total) : total}
+                                  </span>
+                                  <span className="text-[10px] text-slate-500 block">avg: {col.type === "time" ? formatSecondsToTime(avg) : avg}</span>
+                                </td>
+                            );
+                          })}
                           {/* MVP Score - gold/crown only for whoever actually has the highest MVP
                               Score, regardless of which column the table is currently sorted by */}
-                          {mvpFormula.length > 0 && (() => {
+                          {mvpFormula.length > 0 && periodFilter === "ALL" && (() => {
                             const isTopMvp = topMvpScore !== null && p.mvpScore === topMvpScore;
                             return (
                               <td className={`py-3 px-4 text-center font-extrabold ${isTopMvp ? "text-amber-400" : "text-slate-300"}`}>

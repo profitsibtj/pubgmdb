@@ -15,12 +15,13 @@ export const HeadToHead: React.FC<HeadToHeadProps> = ({ matches, isDarkMode, tou
   const [compType, setCompType] = useState<"player" | "team">("player");
   const [target1, setTarget1] = useState("");
   const [target2, setTarget2] = useState("");
-  // "ALL" aggregates across every league (the original/default behavior) - otherwise scopes both
-  // the radar chart and stat bars to just the matches recorded under this one league.
+  // "ALL" aggregates across every league - otherwise scopes both the radar chart and stat bars to
+  // just the matches recorded under this one league. Defaults to whichever tournament is
+  // highlighted (see effect below) rather than staying on "ALL".
   const [selectedLeague, setSelectedLeague] = useState("ALL");
 
   // The tournament an admin has manually marked "highlighted" (Add New Match Data > Tournament
-  // Settings), if any - starred in the league filter dropdown below.
+  // Settings), if any - starred in the league filter dropdown below and auto-selected once.
   const highlightedLeagueName = useMemo(() => {
     const highlighted = (tournaments || []).find((t: any) => t.highlighted);
     return highlighted?.name || null;
@@ -34,6 +35,17 @@ export const HeadToHead: React.FC<HeadToHeadProps> = ({ matches, isDarkMode, tou
     matches.forEach((m) => { if (m.league) leaguesSet.add(m.league.trim()); });
     return Array.from(leaguesSet).sort();
   }, [tournaments, matches]);
+
+  // The first time a highlighted tournament becomes available, prefer it over "ALL" - not
+  // re-applied afterward if the admin later picks "ALL" or another league manually.
+  const hasAppliedHighlightDefault = React.useRef(false);
+  React.useEffect(() => {
+    if (hasAppliedHighlightDefault.current) return;
+    if (highlightedLeagueName && uniqueLeagues.includes(highlightedLeagueName)) {
+      setSelectedLeague(highlightedLeagueName);
+      hasAppliedHighlightDefault.current = true;
+    }
+  }, [highlightedLeagueName, uniqueLeagues]);
 
   // Resolves a player name (+ the team it was recorded under) back to the specific roster player
   // it belongs to - reconciling a registered previous nickname back to their current name, and
@@ -240,11 +252,6 @@ export const HeadToHead: React.FC<HeadToHeadProps> = ({ matches, isDarkMode, tou
           <span className="text-sm font-black font-mono text-amber-500 tracking-tight uppercase">
             ⚔️ {compType === "player" ? "Player vs Player" : "Team vs Team"} Comparison
           </span>
-          {highlightedLeagueName && (
-            <span className="px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-500 text-[9px] font-black uppercase tracking-wider whitespace-nowrap">
-              ★ {highlightedLeagueName}
-            </span>
-          )}
           <div className="flex items-center gap-1 border border-slate-800/20 p-1 rounded-xl bg-slate-950/20">
             <button
               type="button"
