@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from "react";
 import { Match, Team, DailyStatsEntry, ScheduleEntry } from "../types";
-import { calculatePlacementPoints, calculateLeagueRankStandings, getTournamentTeamList, canonicalizeTeamName, canonicalCustomKey, looksLikeTimeValue } from "../utils";
+import { calculatePlacementPoints, calculateLeagueRankStandings, getTournamentTeamList, canonicalizeTeamName, canonicalCustomKey, looksLikeTimeValue, gmt7ToIso, isoToGmt7Parts } from "../utils";
 import {
   Plus, Trash2, RefreshCw, AlertTriangle, Save, GripVertical, Layers,
   ChevronUp, ChevronDown, X, Crown, CalendarClock
@@ -17,9 +17,10 @@ interface AddMatchFormProps {
   dailyStats?: DailyStatsEntry[];
   tournaments?: any[];
   onUpdateTournaments?: (updatedTournaments: any[]) => void;
-  // Deep-link from a Match Schedule entry ("Enter Match Result") so the league, map, date and
-  // title don't have to be retyped here after already being entered once in the schedule.
-  matchPrefill?: { league?: string; map?: string; date?: string; matchCode?: string } | null;
+  // Deep-link from a Match Schedule entry ("Enter Match Result") so the league, map, date, time,
+  // title and (when the schedule entry specified one) game number don't have to be retyped here
+  // after already being entered once in the schedule.
+  matchPrefill?: { league?: string; map?: string; date?: string; time?: string; matchCode?: string; gameNo?: string } | null;
   onConsumedMatchPrefill?: () => void;
   // Lets a brand-new match be saved as a not-yet-played Schedule entry instead of a full result,
   // from this same form - one place to add a match either way, instead of a separate screen.
@@ -129,6 +130,11 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
   // overall/regular-season standings for the same league in Standings.
   const [isGrandFinal, setIsGrandFinal] = useState(false);
 
+  // Marks this match as part of the Survival Stage - a separate, fresh-points stage some
+  // tournaments run between Group Stage and Grand Final, also kept out of the overall/
+  // regular-season standings.
+  const [isSurvivalStage, setIsSurvivalStage] = useState(false);
+
   const [showRosterSettings, setShowRosterSettings] = useState<boolean>(false);
 
   const createEmptyTeam = (name = "", placement = 1): Team => ({
@@ -165,6 +171,10 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
     // a stale/incomplete group roster would surface a filter that misleadingly shows only 1-2
     // teams in a group instead of the real full lineup.
     groupStandingsEnabled?: boolean;
+    // How many top teams advance out of the Survival Stage into Grand Final - varies per
+    // tournament (e.g. PMWC 2026: top 6 of 16), so it's a per-tournament number rather than fixed.
+    // Only used to highlight the advancing teams in Standings; undefined just skips that highlight.
+    survivalStageAdvanceCount?: number;
     teams16Text: string;
     groupAText: string;
     groupBText: string;
@@ -197,6 +207,17 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
     // Points total.
     finalBonusMode?: "leaguePoints" | "rankTable";
     finalBonusPointsTable?: number[];
+    // Smash Rule: an alternative Grand Final win condition (used by e.g. PMWC/PMGC), distinct from
+    // the plain "highest total after every scheduled game" default - opt-in per tournament since
+    // most leagues don't use it. Once smashRuleLockAfterGame games are in, the then-current leader's
+    // total + smashRuleBonus becomes the "Match Point" target; any team whose total reaches that
+    // target is "Match Point Eligible", and the tournament ends the moment an eligible team gets a
+    // WWCD. smashRuleTotalGames (optional) is the full schedule's game count, used only to fall
+    // back to crowning the plain points leader if nobody ever smashes.
+    smashRuleEnabled?: boolean;
+    smashRuleLockAfterGame?: number;
+    smashRuleBonus?: number;
+    smashRuleTotalGames?: number;
     // Player Stats' MVP Score column: a weighted sum of "this player's share of the league's total
     // for a stat" per aspect below. Only stats actually tracked via Player Input Panel for this
     // league can be picked (see numericStatOptions). Admin-only to configure, since only admins can
@@ -344,9 +365,10 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
 
   // Consume a one-time prefill deep-linked from a Match Schedule entry: pick the matching
   // tournament (which drives the auto-populated team list) and seed the remaining meta fields.
-  // A schedule entry only carries a date/time, never a game number - Game/Match No is left to
-  // auto-increment below instead of always landing on the field's default "1", which otherwise
-  // silently saves every game of the day as "Game 1" unless manually corrected each time.
+  // Older schedule entries (saved before Game/Match No existed there) carry no game number - Game/
+  // Match No is then left to auto-increment below instead of always landing on the field's default
+  // "1", which otherwise silently saves every game of the day as "Game 1" unless manually
+  // corrected each time.
   React.useEffect(() => {
     if (!matchPrefill) return;
     setForceFullResultMode(true);
@@ -357,11 +379,12 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
     const existingGamesForDay = matchPrefill.league && matchPrefill.date
       ? matches.filter(m => !m.isDailyStats && m.league === matchPrefill.league && m.date === matchPrefill.date).length
       : 0;
-    const nextGameNo = String(existingGamesForDay + 1);
+    const nextGameNo = matchPrefill.gameNo || String(existingGamesForDay + 1);
     setMeta(prev => ({
       ...prev,
       ...(matchPrefill.map ? { map: matchPrefill.map } : {}),
       ...(matchPrefill.date ? { date: matchPrefill.date } : {}),
+      ...(matchPrefill.time ? { time: matchPrefill.time } : {}),
       ...(matchPrefill.matchCode ? { matchCode: matchPrefill.matchCode } : {}),
       gameNo: nextGameNo,
       totalGame: nextGameNo
@@ -384,18 +407,18 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
       const matched = tournaments.find(t => t.name === editingSchedule.league);
       if (matched) setSelectedTournamentId(matched.id);
     }
-    const scheduledDate = editingSchedule.scheduledAt ? new Date(editingSchedule.scheduledAt) : null;
-    const validDate = !!scheduledDate && !Number.isNaN(scheduledDate.getTime());
-    const pad = (n: number) => String(n).padStart(2, "0");
+    const gmt7Parts = isoToGmt7Parts(editingSchedule.scheduledAt);
     setMeta(prev => ({
       ...prev,
       matchCode: editingSchedule.matchCode || "",
-      ...(validDate ? { date: `${scheduledDate!.getFullYear()}-${pad(scheduledDate!.getMonth() + 1)}-${pad(scheduledDate!.getDate())}` } : {}),
-      time: validDate ? `${pad(scheduledDate!.getHours())}:${pad(scheduledDate!.getMinutes())}` : "",
+      gameNo: editingSchedule.gameNo || "1",
+      totalGame: editingSchedule.gameNo || "1",
+      ...(gmt7Parts ? { date: gmt7Parts.date } : {}),
+      time: gmt7Parts?.time || "",
       ...(editingSchedule.map ? { map: editingSchedule.map } : {}),
       liveLink: editingSchedule.liveLink || ""
     }));
-    setScheduleTeamsInput((editingSchedule.teams || []).join(", "));
+    setScheduleTeamsInput((editingSchedule.teams || []).join("\n"));
   }, [editingSchedule, tournaments]);
 
   const activeWeek = activeTournament?.activeWeek || "1";
@@ -639,7 +662,7 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
       activeTournament.activeMatchup,
       activeTournament.activeGroup || "A"
     );
-    setScheduleTeamsInput(names.join(", "));
+    setScheduleTeamsInput(names.join("\n"));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isScheduleOnly, selectedTournamentId]);
 
@@ -877,6 +900,7 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
           liveLink: editingMatch.liveLink || ""
         });
         setIsGrandFinal(!!editingMatch.isGrandFinal);
+        setIsSurvivalStage(!!editingMatch.isSurvivalStage);
 
         // Find matching tournament preset by name to keep dropdown synchronized
         const matchingTour = tournaments.find(t => t.name.toLowerCase().trim() === matchLeague.toLowerCase().trim());
@@ -913,6 +937,7 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
           liveLink: ""
         });
         setIsGrandFinal(false);
+        setIsSurvivalStage(false);
         applyFormatAndTeamsToLobby();
       }
     }
@@ -979,16 +1004,15 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
     setIsSubmitting(true);
     try {
       const teamList = getTournamentTeamList(activeTournament);
-      const teams = scheduleTeamsInput.split(",").map(t => t.trim()).filter(Boolean)
+      const teams = scheduleTeamsInput.split("\n").map(t => t.trim()).filter(Boolean)
         .map(t => canonicalizeTeamName(t, teamList, activeTournament?.teamAbbreviations));
-      const scheduledAtIso = meta.date && meta.time
-        ? new Date(`${meta.date}T${meta.time}`).toISOString()
-        : "";
+      const scheduledAtIso = gmt7ToIso(meta.date, meta.time);
 
       await onSaveSchedule({
         id: editingSchedule?.id,
         league: (activeTournament?.name || meta.league).trim(),
         matchCode: meta.matchCode.trim(),
+        gameNo: meta.gameNo.trim() || undefined,
         teams,
         map: meta.map,
         scheduledAt: scheduledAtIso,
@@ -1045,6 +1069,7 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
         patch: "", // Removed as requested
         liveLink: meta.liveLink.trim(),
         isGrandFinal,
+        isSurvivalStage,
         teams: processedTeams.sort((a, b) => a.placement - b.placement)
       };
 
@@ -1112,6 +1137,16 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
               />
             </div>
             <div className="space-y-1">
+              <label className="text-[10px] font-mono font-bold text-slate-500 uppercase">GAME/MATCH NO:</label>
+              <input
+                type="text"
+                value={meta.gameNo}
+                onChange={(e) => handleMetaChange("gameNo", e.target.value)}
+                placeholder="e.g. 1"
+                className={`w-full p-2 rounded-lg text-xs font-mono border focus:outline-none focus:ring-1 focus:ring-amber-500 ${isDarkMode ? "bg-slate-900 border-slate-800 text-slate-100" : "bg-white border-slate-300 text-slate-900"}`}
+              />
+            </div>
+            <div className="space-y-1">
               <label className="text-[10px] font-mono font-bold text-slate-500 uppercase">SCHEDULED DATE:</label>
               <div className="flex gap-1">
                 <input
@@ -1164,15 +1199,15 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
               />
             </div>
             <div className="space-y-1 md:col-span-2">
-              <label className="text-[10px] font-mono font-bold text-slate-500 uppercase">PARTICIPATING TEAMS:</label>
-              <input
-                type="text"
+              <label className="text-[10px] font-mono font-bold text-slate-500 uppercase">PARTICIPATING TEAMS (ONE PER LINE):</label>
+              <textarea
                 value={scheduleTeamsInput}
                 onChange={(e) => setScheduleTeamsInput(e.target.value)}
-                placeholder="Team A, Team B, ..."
-                className={`w-full p-2 rounded-lg text-xs font-mono border focus:outline-none focus:ring-1 focus:ring-amber-500 ${isDarkMode ? "bg-slate-900 border-slate-800 text-slate-100" : "bg-white border-slate-300 text-slate-900"}`}
+                placeholder={"Team A\nTeam B\n..."}
+                rows={6}
+                className={`w-full p-2 rounded-lg text-xs font-mono border focus:outline-none focus:ring-1 focus:ring-amber-500 resize-y ${isDarkMode ? "bg-slate-900 border-slate-800 text-slate-100" : "bg-white border-slate-300 text-slate-900"}`}
               />
-              <p className="text-[9px] text-slate-500">Auto-filled from this league's current lobby/group - edit if this match's lineup is different.</p>
+              <p className="text-[9px] text-slate-500">Auto-filled from this league's current lobby/group - edit if this match's lineup is different. One team name per line.</p>
             </div>
           </div>
 
@@ -1313,7 +1348,10 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
             <input
               type="checkbox"
               checked={isGrandFinal}
-              onChange={(e) => setIsGrandFinal(e.target.checked)}
+              onChange={(e) => {
+                setIsGrandFinal(e.target.checked);
+                if (e.target.checked) setIsSurvivalStage(false);
+              }}
               className="w-4 h-4 accent-amber-500 cursor-pointer"
             />
             <span className={`text-[11px] font-mono font-bold uppercase ${isGrandFinal ? "text-amber-500" : isDarkMode ? "text-slate-300" : "text-slate-600"}`}>
@@ -1334,6 +1372,30 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
               {activeTournament.finalBonusMode === "rankTable" ? "Fill Bonus Points from Rank Table" : "Fill Bonus Points from League Points"}
             </button>
           )}
+        </div>
+
+        {/* SURVIVAL STAGE FLAG - a separate, fresh-points stage some tournaments run between Group
+            Stage and Grand Final (mutually exclusive with Grand Final above). */}
+        <div className={`flex flex-wrap items-center gap-2.5 p-3 rounded-xl border transition-all ${
+          isSurvivalStage
+            ? "bg-teal-500/10 border-teal-500/30"
+            : isDarkMode ? "bg-slate-950/40 border-slate-850" : "bg-slate-50 border-slate-200"
+        }`}>
+          <label className="flex items-center gap-2.5 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={isSurvivalStage}
+              onChange={(e) => {
+                setIsSurvivalStage(e.target.checked);
+                if (e.target.checked) setIsGrandFinal(false);
+              }}
+              className="w-4 h-4 accent-teal-500 cursor-pointer"
+            />
+            <span className={`text-[11px] font-mono font-bold uppercase ${isSurvivalStage ? "text-teal-400" : isDarkMode ? "text-slate-300" : "text-slate-600"}`}>
+              Mark as Survival Stage Match
+            </span>
+            <span className="text-[9px] text-slate-500 normal-case">(its own fresh-points table in Standings, separate from Overall and Grand Final)</span>
+          </label>
         </div>
 
         {/* MANUAL ENTRY LAYOUT */}
@@ -1478,6 +1540,21 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
                     <p className="text-[9px] text-slate-500 mt-2 leading-relaxed">Adds a "Filter Group" control on Match Standings to split the table by Group A/B/C/etc. Only turn this on once Group A-E's team lists above are fully filled in and kept up to date - otherwise a group will misleadingly show just the 1-2 teams that happen to be listed, not the real full lineup.</p>
                   </div>
 
+                  {/* Survival Stage advance count - only meaningful once at least one match here is
+                      marked "Survival Stage" below; varies per tournament, so it's just a number. */}
+                  <div className="bg-slate-950/20 p-4 rounded-xl border border-slate-850/60">
+                    <label className="text-[10px] font-mono font-bold text-teal-400 uppercase tracking-wider block mb-2">Survival Stage: Teams Advancing to Grand Final</label>
+                    <input
+                      type="number"
+                      min={1}
+                      value={activeTournament?.survivalStageAdvanceCount || ""}
+                      onChange={(e) => updateActiveTournament({ survivalStageAdvanceCount: Number(e.target.value) || undefined })}
+                      placeholder="e.g. 6"
+                      className={`w-full max-w-[140px] p-2 rounded-lg text-xs font-mono border focus:outline-none focus:ring-1 focus:ring-teal-500 ${isDarkMode ? "bg-slate-900 border-slate-800 text-slate-100" : "bg-white border-slate-300 text-slate-900"}`}
+                    />
+                    <p className="text-[9px] text-slate-500 mt-2 leading-relaxed">How many top teams advance out of Survival Stage - varies per tournament. Used in Standings to highlight who's advancing once matches there are marked "Survival Stage" (below, in each match's own settings). Leave blank to skip the highlight.</p>
+                  </div>
+
                   {/* League Rank Points: opt-in per tournament, not every league uses this */}
                   <div className="bg-slate-950/20 p-4 rounded-xl border border-slate-850/60 space-y-3">
                     <label className="flex items-center gap-2.5 cursor-pointer">
@@ -1610,6 +1687,61 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
                             </div>
                           </div>
                         )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Smash Rule: alternative Grand Final win condition (PMWC/PMGC-style) - opt-in,
+                      most tournaments just use the plain highest-total-after-every-game default. */}
+                  <div className="bg-slate-950/20 p-4 rounded-xl border border-slate-850/60 space-y-3">
+                    <label className="flex items-center gap-2.5 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={!!activeTournament?.smashRuleEnabled}
+                        onChange={(e) => updateActiveTournament({ smashRuleEnabled: e.target.checked })}
+                        className="w-4 h-4 accent-amber-500 cursor-pointer shrink-0"
+                      />
+                      <span className="text-[10px] font-mono font-bold text-amber-500 uppercase tracking-wider">Enable Smash Rule (Grand Final)</span>
+                      <span className="text-[9px] text-slate-500 normal-case">(the leader's total + bonus becomes a "Match Point" target — first eligible team to WWCD wins early)</span>
+                    </label>
+
+                    {activeTournament?.smashRuleEnabled && (
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider block">LOCK TARGET AFTER GAME #</label>
+                          <input
+                            type="number"
+                            min={1}
+                            value={activeTournament.smashRuleLockAfterGame || ""}
+                            onChange={(e) => updateActiveTournament({ smashRuleLockAfterGame: Number(e.target.value) || undefined })}
+                            placeholder="e.g. 12"
+                            className={`w-full p-2 rounded-lg text-xs font-mono border focus:outline-none focus:ring-1 focus:ring-amber-500 ${isDarkMode ? "bg-slate-900 border-slate-800 text-slate-100" : "bg-white border-slate-300 text-slate-900"}`}
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider block">BONUS ADDED TO TARGET</label>
+                          <input
+                            type="number"
+                            value={activeTournament.smashRuleBonus ?? 10}
+                            onChange={(e) => updateActiveTournament({ smashRuleBonus: Number(e.target.value) || 0 })}
+                            placeholder="e.g. 10"
+                            className={`w-full p-2 rounded-lg text-xs font-mono border focus:outline-none focus:ring-1 focus:ring-amber-500 ${isDarkMode ? "bg-slate-900 border-slate-800 text-slate-100" : "bg-white border-slate-300 text-slate-900"}`}
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider block">TOTAL SCHEDULED GAMES (optional)</label>
+                          <input
+                            type="number"
+                            min={1}
+                            value={activeTournament.smashRuleTotalGames || ""}
+                            onChange={(e) => updateActiveTournament({ smashRuleTotalGames: Number(e.target.value) || undefined })}
+                            placeholder="e.g. 18"
+                            className={`w-full p-2 rounded-lg text-xs font-mono border focus:outline-none focus:ring-1 focus:ring-amber-500 ${isDarkMode ? "bg-slate-900 border-slate-800 text-slate-100" : "bg-white border-slate-300 text-slate-900"}`}
+                          />
+                        </div>
+                        <p className="text-[9px] text-slate-500 sm:col-span-3">
+                          Example (PMWC): Lock after game 12, bonus +10 → the leader's total after game 12, plus 10, becomes the Match Point target. Any team reaching it is Match Point Eligible; the tournament is won the moment an eligible team gets a WWCD. If nobody smashes by the Total Scheduled Games count (if set), the plain points leader is crowned instead.
+                        </p>
                       </div>
                     )}
                   </div>

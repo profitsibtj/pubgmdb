@@ -12,6 +12,38 @@ export const calculatePlacementPoints = (placement: number): number => {
   return 0;
 };
 
+// Match Schedule's date/time is always meant as Indonesia local time (GMT+7, WIB - no DST), the
+// tournament's home timezone, regardless of which timezone the admin's own device happens to be
+// set to. Stored as a UTC instant (scheduledAt) so the countdown/live logic itself is unaffected,
+// and so each viewer's own browser can render it back in their own local time automatically
+// (`toLocaleString()` already does this without help) - only the admin-facing input/edit forms
+// need to consistently mean GMT+7 rather than "whatever timezone this browser happens to be in".
+const GMT7_OFFSET_MS = 7 * 60 * 60 * 1000;
+
+// Combines a GMT+7 wall-clock date+time into the UTC ISO instant it represents. Parsing
+// "YYYY-MM-DDTHH:mm" directly (with no offset) would instead assume the *browser's* local
+// timezone - correct only when the admin's device happens to already be set to WIB.
+export const gmt7ToIso = (dateStr: string, timeStr: string): string => {
+  if (!dateStr || !timeStr) return "";
+  const dt = new Date(`${dateStr}T${timeStr}:00+07:00`);
+  return Number.isNaN(dt.getTime()) ? "" : dt.toISOString();
+};
+
+// Splits a UTC ISO instant back into the GMT+7 wall-clock date/time it represents. Reading it via
+// Date's local getters (getHours(), getFullYear(), ...) would instead return the *browser's* local
+// time - wrong whenever the admin viewing/editing it isn't themselves in WIB.
+export const isoToGmt7Parts = (iso: string): { date: string; time: string } | null => {
+  if (!iso) return null;
+  const utcMs = new Date(iso).getTime();
+  if (Number.isNaN(utcMs)) return null;
+  const shifted = new Date(utcMs + GMT7_OFFSET_MS);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return {
+    date: `${shifted.getUTCFullYear()}-${pad(shifted.getUTCMonth() + 1)}-${pad(shifted.getUTCDate())}`,
+    time: `${pad(shifted.getUTCHours())}:${pad(shifted.getUTCMinutes())}`
+  };
+};
+
 // "+ Add Column" always mints a custom_ key from whatever label is typed, even when that label
 // (e.g. "Assist") actually means one of the standard Daily Stats fields (key "assists") that every
 // hardcoded save/display/aggregation path elsewhere only ever reads by its real key. Without this,

@@ -20,15 +20,18 @@ export const TournamentStandings: React.FC<TournamentStandingsProps> = ({ matche
   const [teamSearchTerm, setTeamSearchTerm] = useState<string>("All");
   const [selectedTeamDetail, setSelectedTeamDetail] = useState<string | null>(null);
 
-  // Overall = regular-season standings (everything except Grand Final matches).
+  // Overall = regular-season standings (everything except Grand Final / Survival Stage matches).
   // League = League Rank Points (weekly rank converted to points, accumulated separately) - only
   // available when the tournament preset has this enabled, since not every league uses it.
-  // Final = only matches explicitly tagged as Grand Final. All three stay non-overlapping views
-  // within the same league so a Final (or the League Points meta-ranking) doesn't skew the overall table.
-  const [viewMode, setViewMode] = useState<"overall" | "league" | "final">("overall");
+  // Survival = only matches explicitly tagged as Survival Stage - its own fresh points, not carried
+  // over from Overall. Final = only matches explicitly tagged as Grand Final. All views stay
+  // non-overlapping within the same league so one stage never skews another's table.
+  const [viewMode, setViewMode] = useState<"overall" | "league" | "survival" | "final">("overall");
 
   const matchesStageMatch = (match: Match): boolean => {
-    return viewMode === "final" ? !!match.isGrandFinal : !match.isGrandFinal;
+    if (viewMode === "final") return !!match.isGrandFinal;
+    if (viewMode === "survival") return !!match.isSurvivalStage;
+    return !match.isGrandFinal && !match.isSurvivalStage;
   };
 
   // Helper to pull just the Week number out of a matchCode, e.g. "W2D3" -> "Week 2". Returns
@@ -357,14 +360,102 @@ export const TournamentStandings: React.FC<TournamentStandingsProps> = ({ matche
     return matches.some(m => !m.isDailyStats && m.league === selectedTournament && m.isGrandFinal);
   }, [matches, selectedTournament]);
 
+  // Every Grand Final match for this league, ignoring the viewer's own Map/Week/Day filters above -
+  // Smash Rule eligibility/target is an objective tournament fact, not something that should change
+  // depending on which subset of games someone happens to be looking at.
+  const grandFinalMatchesAll = useMemo(() => {
+    if (!selectedTournament) return [];
+    return matches.filter(m => !m.isDailyStats && m.league === selectedTournament && m.isGrandFinal);
+  }, [matches, selectedTournament]);
+
+  // Distinct Grand Final games (one date+gameNo pair can span several teams' Team entries), in play
+  // order - the "Nth game" Smash Rule's lock-in point and forward eligibility walk are counted against.
+  const grandFinalGameKeys = useMemo(() => {
+    const seen = new Map<string, { date: string; gameNo: string }>();
+    grandFinalMatchesAll.forEach(m => {
+      const key = `${m.date}__${m.gameNo || ""}`;
+      if (!seen.has(key)) seen.set(key, { date: m.date, gameNo: m.gameNo || "" });
+    });
+    return Array.from(seen.values()).sort((a, b) => {
+      if (a.date !== b.date) return a.date.localeCompare(b.date);
+      const gA = parseInt(a.gameNo, 10);
+      const gB = parseInt(b.gameNo, 10);
+      if (!isNaN(gA) && !isNaN(gB) && gA !== gB) return gA - gB;
+      return a.gameNo.localeCompare(b.gameNo);
+    });
+  }, [grandFinalMatchesAll]);
+
+  // Replays Grand Final games in order to find the Match Point target (leader's total after the
+  // configured lock-in game, plus the configured bonus), which teams have since reached it, and -
+  // walking forward from there - the first eligible team to also grab a WWCD (the moment Smash Rule
+  // declares a winner and the tournament ends early).
+  const smashRuleState = useMemo(() => {
+    if (!currentPreset?.smashRuleEnabled || grandFinalGameKeys.length === 0) return null;
+    const totalGamesPlayed = grandFinalGameKeys.length;
+    const lockAfterGame = Math.min(Math.max(1, Number(currentPreset.smashRuleLockAfterGame) || totalGamesPlayed), totalGamesPlayed);
+    const bonus = Number(currentPreset.smashRuleBonus) || 0;
+
+    const running: Record<string, number> = {};
+    let matchPointTarget: number | null = null;
+    let champion: string | null = null;
+    let championAtGameIndex: number | null = null;
+    const eligibleTeams = new Set<string>();
+
+    grandFinalGameKeys.forEach((key, idx) => {
+      const gameMatches = grandFinalMatchesAll.filter(m => m.date === key.date && (m.gameNo || "") === key.gameNo);
+      const wwcdTeamsThisGame: string[] = [];
+      gameMatches.forEach(m => {
+        m.teams.forEach(t => {
+          const name = canonicalizeTeam(t.name.trim());
+          if (!name) return;
+          running[name] = (running[name] || 0) + (Number(t.totalPoints) || 0);
+          if (t.placement === 1) wwcdTeamsThisGame.push(name);
+        });
+      });
+
+      const gameNumber = idx + 1;
+      if (gameNumber === lockAfterGame) {
+        const leaderTotal = Object.values(running).length > 0 ? Math.max(...Object.values(running)) : 0;
+        matchPointTarget = leaderTotal + bonus;
+      }
+      if (matchPointTarget !== null) {
+        Object.entries(running).forEach(([name, total]) => {
+          if (total >= matchPointTarget!) eligibleTeams.add(name);
+        });
+        if (!champion) {
+          const winner = wwcdTeamsThisGame.find(name => eligibleTeams.has(name));
+          if (winner) {
+            champion = winner;
+            championAtGameIndex = idx;
+          }
+        }
+      }
+    });
+
+    return { matchPointTarget, lockAfterGame, totalGamesPlayed, eligibleTeams, champion, championAtGameIndex };
+  }, [currentPreset, grandFinalGameKeys, grandFinalMatchesAll, canonicalizeTeam]);
+
   const championTeamName = useMemo(() => {
-    if (viewMode === "league") return null;
+    // Survival Stage has no single "winner" - a group of teams advance instead (see the
+    // "Advancing" highlight below), so it never gets a champion crown.
+    if (viewMode === "league" || viewMode === "survival") return null;
     const isDecidingStage = viewMode === "final" || (viewMode === "overall" && !hasGrandFinalMatches);
     if (!isDecidingStage) return null;
+
+    // Smash Rule tournaments: only crown once smashed, or once every scheduled game is in with
+    // nobody having smashed (falls back to the plain points leader) - never crown mid-tournament
+    // just because someone's currently on top, since that's not how the win condition works here.
+    if (viewMode === "final" && smashRuleState) {
+      if (smashRuleState.champion) return smashRuleState.champion;
+      const scheduledTotal = currentPreset?.smashRuleTotalGames;
+      const allGamesIn = !!scheduledTotal && smashRuleState.totalGamesPlayed >= scheduledTotal;
+      if (!allGamesIn) return null;
+    }
+
     const top = standings[0];
     if (top && top.wwcdCount > 0) return top.name;
     return null;
-  }, [standings, viewMode, hasGrandFinalMatches]);
+  }, [standings, viewMode, hasGrandFinalMatches, smashRuleState, currentPreset]);
 
   return (
     <div className="space-y-8 font-mono text-xs animate-fadeIn">
@@ -384,7 +475,7 @@ export const TournamentStandings: React.FC<TournamentStandingsProps> = ({ matche
                 </div>
                 <div>
                   <h3 className={`font-bold font-display text-base uppercase tracking-tight flex items-center gap-2 ${isDarkMode ? "text-slate-100" : "text-slate-900"}`}>
-                    {viewMode === "final" ? "Grand Final Standings" : "Overall League Standings"}
+                    {viewMode === "final" ? "Grand Final Standings" : viewMode === "survival" ? "Survival Stage Standings" : "Overall League Standings"}
                     {selectedTournament && selectedTournament === activeTournamentName && (
                       <span className="px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-500 text-[9px] font-black uppercase tracking-wider">
                         ★ Highlighted
@@ -443,6 +534,17 @@ export const TournamentStandings: React.FC<TournamentStandingsProps> = ({ matche
               )}
               <button
                 type="button"
+                onClick={() => setViewMode("survival")}
+                className={`px-4 py-1.5 rounded-xl text-[10px] font-black font-mono uppercase tracking-wider transition-all cursor-pointer border ${
+                  viewMode === "survival"
+                    ? "bg-teal-500 text-slate-950 border-teal-500"
+                    : isDarkMode ? "bg-slate-950 text-slate-400 border-slate-800 hover:text-white" : "bg-white text-slate-600 border-slate-200 hover:text-slate-900"
+                }`}
+              >
+                Survival Stage
+              </button>
+              <button
+                type="button"
                 onClick={() => setViewMode("final")}
                 className={`px-4 py-1.5 rounded-xl text-[10px] font-black font-mono uppercase tracking-wider transition-all cursor-pointer border ${
                   viewMode === "final"
@@ -453,6 +555,42 @@ export const TournamentStandings: React.FC<TournamentStandingsProps> = ({ matche
                 Grand Final
               </button>
             </div>
+
+            {/* Smash Rule status - Grand Final's Match Point target, and whether/who has smashed */}
+            {viewMode === "final" && smashRuleState && (
+              <div className={`mb-4 p-3 rounded-xl border text-[11px] font-mono flex flex-wrap items-center gap-x-3 gap-y-1 ${
+                smashRuleState.champion
+                  ? "bg-amber-500/10 border-amber-500/30 text-amber-500"
+                  : isDarkMode ? "bg-slate-950/40 border-slate-850 text-slate-300" : "bg-slate-50 border-slate-200 text-slate-700"
+              }`}>
+                <span className="font-black uppercase tracking-wider">
+                  {smashRuleState.matchPointTarget !== null ? `⚡ Match Point: ${smashRuleState.matchPointTarget}` : `Locks in after game ${smashRuleState.lockAfterGame}`}
+                </span>
+                {smashRuleState.champion ? (
+                  <span className="font-bold">💥 SMASHED by <strong>{smashRuleState.champion}</strong> at Game {(smashRuleState.championAtGameIndex ?? 0) + 1}</span>
+                ) : smashRuleState.matchPointTarget !== null ? (
+                  <span className="text-slate-500">
+                    {smashRuleState.eligibleTeams.size > 0
+                      ? `Match Point Eligible: ${Array.from(smashRuleState.eligibleTeams).join(", ")}`
+                      : "No team has reached Match Point yet."}
+                  </span>
+                ) : (
+                  <span className="text-slate-500">{smashRuleState.totalGamesPlayed} game{smashRuleState.totalGamesPlayed === 1 ? "" : "s"} recorded so far.</span>
+                )}
+              </div>
+            )}
+
+            {/* Survival Stage status - fresh points, separate from Overall/Grand Final, with the
+                top N (configured per tournament, since it varies) highlighted as advancing below. */}
+            {viewMode === "survival" && (
+              <div className={`mb-4 p-3 rounded-xl border text-[11px] font-mono ${
+                isDarkMode ? "bg-slate-950/40 border-slate-850 text-slate-300" : "bg-slate-50 border-slate-200 text-slate-700"
+              }`}>
+                {currentPreset?.survivalStageAdvanceCount
+                  ? <span>Top <strong className="text-teal-400">{currentPreset.survivalStageAdvanceCount}</strong> teams advance to Grand Final - fresh points for this stage, not carried over from Overall.</span>
+                  : <span className="text-slate-500">Fresh points for this stage, not carried over from Overall. Set "Teams Advancing to Grand Final" in this tournament's settings to highlight who's advancing.</span>}
+              </div>
+            )}
 
             {/* Sub-Filters: Map, Week, Day, Team Search */}
             <div className="flex flex-wrap gap-3 mb-4">
@@ -657,10 +795,20 @@ export const TournamentStandings: React.FC<TournamentStandingsProps> = ({ matche
                             </span>
                           </td>
                           <td className="py-3 px-4 font-bold uppercase tracking-tight">
-                            <span className="flex items-center gap-1.5">
+                            <span className="flex items-center gap-1.5 flex-wrap">
                               {team.name}
                               {team.name === championTeamName && (
                                 <Star className="w-3.5 h-3.5 fill-amber-500 text-amber-500" />
+                              )}
+                              {viewMode === "survival" && !!currentPreset?.survivalStageAdvanceCount && rank <= currentPreset.survivalStageAdvanceCount && (
+                                <span className="px-1.5 py-0.5 rounded bg-teal-500/10 border border-teal-500/30 text-teal-400 text-[8px] font-black uppercase tracking-wider whitespace-nowrap">
+                                  ✅ Advancing
+                                </span>
+                              )}
+                              {viewMode === "final" && smashRuleState?.eligibleTeams.has(team.name) && team.name !== smashRuleState.champion && (
+                                <span className="px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/30 text-amber-500 text-[8px] font-black uppercase tracking-wider whitespace-nowrap">
+                                  ⚡ Match Point
+                                </span>
                               )}
                             </span>
                           </td>

@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { ScheduleEntry, Match } from "../types";
+import { gmt7ToIso, isoToGmt7Parts } from "../utils";
 import {
-  Trash2, Edit2, Clock, Radio, CheckCircle2, Play, CalendarClock, RefreshCw, Flag, ClipboardList, History
+  Trash2, Edit2, Clock, Radio, CheckCircle2, Play, CalendarClock, RefreshCw, Flag, ClipboardList, History, X, Users
 } from "lucide-react";
 
 interface MatchScheduleProps {
@@ -70,6 +71,9 @@ export const MatchSchedule: React.FC<MatchScheduleProps> = ({
   }, [hasCountdownEntry]);
 
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  // Not-yet-played entries have no result to view yet - clicking one instead shows just the
+  // confirmed lineup (no ranking, since nothing's actually been played) rather than nothing.
+  const [lineupModalSchedule, setLineupModalSchedule] = useState<ScheduleEntry | null>(null);
   const [showFinished, setShowFinished] = useState(false);
   const [backfillTime, setBackfillTime] = useState("18:00");
   const [isBackfilling, setIsBackfilling] = useState(false);
@@ -77,7 +81,7 @@ export const MatchSchedule: React.FC<MatchScheduleProps> = ({
   // Match results with no corresponding schedule entry (same league + date match used everywhere
   // else this pairing matters) - candidates for the one-off backfill below.
   const matchesWithoutSchedule = useMemo(() => {
-    return matches.filter(m => !schedules.some(s => s.league === m.league && s.scheduledAt && s.scheduledAt.slice(0, 10) === m.date));
+    return matches.filter(m => !schedules.some(s => s.league === m.league && isoToGmt7Parts(s.scheduledAt)?.date === m.date));
   }, [matches, schedules]);
 
   const handleBackfillFromMatches = async () => {
@@ -85,7 +89,7 @@ export const MatchSchedule: React.FC<MatchScheduleProps> = ({
     setIsBackfilling(true);
     try {
       for (const m of matchesWithoutSchedule) {
-        const scheduledAtIso = new Date(`${m.date}T${backfillTime}`).toISOString();
+        const scheduledAtIso = gmt7ToIso(m.date, backfillTime);
         await onSaveSchedule({
           league: m.league || "",
           matchCode: m.matchCode,
@@ -202,16 +206,18 @@ export const MatchSchedule: React.FC<MatchScheduleProps> = ({
             const validStart = startMs > 0;
 
             const isViewable = status === "finished" && !!onViewMatch;
+            const hasLineup = status !== "finished" && (s.teams || []).length > 0;
+            const isClickable = isViewable || hasLineup;
 
             return (
               <div
                 key={s.id}
-                onClick={isViewable ? () => onViewMatch!(s) : undefined}
-                title={isViewable ? "Click to view this match's posted result" : undefined}
-                className={`rounded-2xl p-4 flex flex-col gap-3 transition-all ${isViewable ? "cursor-pointer" : ""} ${
+                onClick={isViewable ? () => onViewMatch!(s) : hasLineup ? () => setLineupModalSchedule(s) : undefined}
+                title={isViewable ? "Click to view this match's posted result" : hasLineup ? "Click to view the confirmed lineup" : undefined}
+                className={`rounded-2xl p-4 flex flex-col gap-3 transition-all ${isClickable ? "cursor-pointer" : ""} ${
                   isDarkMode
-                    ? status === "ongoing" ? "bg-red-950/10 border border-red-500/20" : `bg-slate-900/30 border border-slate-900 ${isViewable ? "hover:border-amber-500/30" : "hover:border-slate-800"}`
-                    : status === "ongoing" ? "bg-red-50 border border-red-200" : `bg-white border border-slate-200 ${isViewable ? "hover:border-amber-300" : ""} hover:shadow`
+                    ? status === "ongoing" ? "bg-red-950/10 border border-red-500/20" : `bg-slate-900/30 border border-slate-900 ${isClickable ? "hover:border-amber-500/30" : "hover:border-slate-800"}`
+                    : status === "ongoing" ? "bg-red-50 border border-red-200" : `bg-white border border-slate-200 ${isClickable ? "hover:border-amber-300" : ""} hover:shadow`
                 }`}
               >
                 <div className="flex items-start justify-between gap-2">
@@ -242,6 +248,7 @@ export const MatchSchedule: React.FC<MatchScheduleProps> = ({
                     {s.teams && s.teams.length > 0 && (
                       <p className={`text-[10px] mt-1.5 truncate ${isDarkMode ? "text-slate-400" : "text-slate-600"}`}>
                         {s.teams.length === 2 ? s.teams.join(" vs ") : s.teams.join(", ")}
+                        {hasLineup && <span className="text-amber-500 normal-case font-semibold"> · View lineup</span>}
                       </p>
                     )}
                   </div>
@@ -382,6 +389,52 @@ export const MatchSchedule: React.FC<MatchScheduleProps> = ({
                   <Trash2 className="w-3.5 h-3.5" />
                   <span>Yes, Delete</span>
                 </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* LINEUP PREVIEW MODAL - for a not-yet-played entry: just the confirmed team list, with no
+          rank/points (there's nothing to rank yet), unlike the real Standings this isn't. */}
+      {lineupModalSchedule && (
+        <div className={`fixed inset-0 backdrop-blur-sm flex items-center justify-center z-[110] p-4 transition-colors duration-200 ${isDarkMode ? "bg-slate-950/80" : "bg-slate-900/40"}`}>
+          <div className={`w-full max-w-md border rounded-2xl shadow-2xl overflow-hidden animate-fadeIn transition-colors duration-200 ${isDarkMode ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200 text-slate-800"}`}>
+            <div className={`flex items-start justify-between gap-2 p-5 border-b ${isDarkMode ? "border-slate-800" : "border-slate-200"}`}>
+              <div className="min-w-0">
+                <h3 className={`font-bold text-sm truncate ${isDarkMode ? "text-slate-100" : "text-slate-900"}`}>
+                  {lineupModalSchedule.matchCode}
+                </h3>
+                <p className="text-[10px] text-slate-500 mt-0.5 truncate">
+                  {[lineupModalSchedule.league, lineupModalSchedule.map].filter(Boolean).join(" • ")}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setLineupModalSchedule(null)}
+                className="p-1 rounded-lg hover:bg-slate-800/40 text-slate-400 hover:text-white transition-all cursor-pointer shrink-0"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-3">
+              <p className="text-[9px] text-slate-500 uppercase font-bold tracking-wider flex items-center gap-1.5">
+                <Users className="w-3 h-3" />
+                Confirmed Lineup - not started yet, no ranking
+              </p>
+              <div className="space-y-1.5 max-h-[50vh] overflow-y-auto pr-1">
+                {(lineupModalSchedule.teams || []).map((team, idx) => (
+                  <div
+                    key={`${team}-${idx}`}
+                    className={`flex items-center gap-3 px-3 py-2 rounded-xl ${isDarkMode ? "bg-slate-950/40" : "bg-slate-50"}`}
+                  >
+                    <span className={`w-5 h-5 rounded-md flex items-center justify-center text-[10px] font-bold shrink-0 ${isDarkMode ? "bg-slate-800 text-slate-500" : "bg-slate-200 text-slate-500"}`}>
+                      {idx + 1}
+                    </span>
+                    <span className={`text-xs font-bold ${isDarkMode ? "text-slate-200" : "text-slate-800"}`}>{team}</span>
+                  </div>
+                ))}
               </div>
             </div>
           </div>

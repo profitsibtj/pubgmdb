@@ -43,6 +43,7 @@ export interface ScheduleEntry {
   id?: string;
   league?: string; // e.g. PMSL, PMGC, PMCO
   matchCode: string; // e.g. "Week 1 Day 1" or "Grand Final"
+  gameNo?: string; // e.g. "1" - which game of the day/session this scheduled slot is
   teams?: string[]; // Optional list of confirmed participating teams
   map?: string; // "Erangel" | "Miramar" | "Sanhok" | "Rondo"
   scheduledAt: string; // ISO datetime string - when the match is set to start
@@ -70,6 +71,7 @@ export interface Match {
   // Player Input Panel entries don't get mixed into actual match results.
   isDailyStats?: boolean;
   isGrandFinal?: boolean; // Marks this match as part of the Grand Final stage, kept separate from the overall/regular-season standings for the same league
+  isSurvivalStage?: boolean; // Marks this match as part of the Survival Stage - a separate, fresh-points stage some tournaments run between Group Stage and Grand Final, also kept out of the overall/regular-season standings
   customColumns?: CustomColumn[];
 }
 

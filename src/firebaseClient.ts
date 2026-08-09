@@ -16,6 +16,7 @@ const mapMatchFromDb = (row: any) => {
     liveLink: row.live_link || "",
     teams: row.teams || [],
     isGrandFinal: !!row.is_grand_final,
+    isSurvivalStage: !!row.is_survival_stage,
     customColumns: row.custom_columns || undefined,
     createdAt: row.created_at || "",
     updatedAt: row.updated_at || "",
@@ -35,6 +36,7 @@ const mapMatchToDb = (data: any) => {
     live_link: data.liveLink || null,
     teams: data.teams || null,
     is_grand_final: !!data.isGrandFinal,
+    is_survival_stage: !!data.isSurvivalStage,
     custom_columns: data.customColumns || null,
   };
 };
@@ -69,6 +71,7 @@ const mapScheduleFromDb = (row: any): ScheduleEntry => {
     id: String(row.id),
     league: row.league || "",
     matchCode: row.match_code || "",
+    gameNo: row.game_no || "",
     teams: row.teams || [],
     map: row.map || "",
     scheduledAt: row.scheduled_at || "",
@@ -82,6 +85,7 @@ const mapScheduleToDb = (data: any) => {
   return {
     league: data.league || null,
     match_code: data.matchCode || null,
+    game_no: data.gameNo || null,
     teams: data.teams || null,
     map: data.map || null,
     scheduled_at: data.scheduledAt || null,
