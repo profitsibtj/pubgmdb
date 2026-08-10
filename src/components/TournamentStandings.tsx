@@ -20,18 +20,20 @@ export const TournamentStandings: React.FC<TournamentStandingsProps> = ({ matche
   const [teamSearchTerm, setTeamSearchTerm] = useState<string>("All");
   const [selectedTeamDetail, setSelectedTeamDetail] = useState<string | null>(null);
 
-  // Overall = regular-season standings (everything except Grand Final / Survival Stage matches).
-  // League = League Rank Points (weekly rank converted to points, accumulated separately) - only
-  // available when the tournament preset has this enabled, since not every league uses it.
-  // Survival = only matches explicitly tagged as Survival Stage - its own fresh points, not carried
-  // over from Overall. Final = only matches explicitly tagged as Grand Final. All views stay
-  // non-overlapping within the same league so one stage never skews another's table.
-  const [viewMode, setViewMode] = useState<"overall" | "league" | "survival" | "final">("overall");
+  // Overall = regular-season standings (everything except Grand Final / Survival Stage / Last
+  // Chance Qualifier matches). League = League Rank Points (weekly rank converted to points,
+  // accumulated separately) - only available when the tournament preset has this enabled, since
+  // not every league uses it. Survival / LCQ = only matches explicitly tagged for that stage -
+  // each its own fresh points, not carried over from Overall or each other. Final = only matches
+  // explicitly tagged as Grand Final. All views stay non-overlapping within the same league so one
+  // stage never skews another's table.
+  const [viewMode, setViewMode] = useState<"overall" | "league" | "survival" | "lcq" | "final">("overall");
 
   const matchesStageMatch = (match: Match): boolean => {
     if (viewMode === "final") return !!match.isGrandFinal;
     if (viewMode === "survival") return !!match.isSurvivalStage;
-    return !match.isGrandFinal && !match.isSurvivalStage;
+    if (viewMode === "lcq") return !!match.isLastChanceQualifier;
+    return !match.isGrandFinal && !match.isSurvivalStage && !match.isLastChanceQualifier;
   };
 
   // Helper to pull just the Week number out of a matchCode, e.g. "W2D3" -> "Week 2". Returns
@@ -360,6 +362,25 @@ export const TournamentStandings: React.FC<TournamentStandingsProps> = ({ matche
     return matches.some(m => !m.isDailyStats && m.league === selectedTournament && m.isGrandFinal);
   }, [matches, selectedTournament]);
 
+  // Survival Stage and Last Chance Qualifier tabs only show up once this league actually has a
+  // match recorded for that stage - not every tournament runs either one.
+  const hasSurvivalStageMatches = useMemo(() => {
+    if (!selectedTournament) return false;
+    return matches.some(m => !m.isDailyStats && m.league === selectedTournament && m.isSurvivalStage);
+  }, [matches, selectedTournament]);
+
+  const hasLastChanceQualifierMatches = useMemo(() => {
+    if (!selectedTournament) return false;
+    return matches.some(m => !m.isDailyStats && m.league === selectedTournament && m.isLastChanceQualifier);
+  }, [matches, selectedTournament]);
+
+  // Fall back to Overall if the tab someone's currently on disappears - e.g. switching to a
+  // tournament with no Survival Stage/LCQ matches while that tab was active.
+  React.useEffect(() => {
+    if (viewMode === "survival" && !hasSurvivalStageMatches) setViewMode("overall");
+    if (viewMode === "lcq" && !hasLastChanceQualifierMatches) setViewMode("overall");
+  }, [viewMode, hasSurvivalStageMatches, hasLastChanceQualifierMatches]);
+
   // Every Grand Final match for this league, ignoring the viewer's own Map/Week/Day filters above -
   // Smash Rule eligibility/target is an objective tournament fact, not something that should change
   // depending on which subset of games someone happens to be looking at.
@@ -436,9 +457,9 @@ export const TournamentStandings: React.FC<TournamentStandingsProps> = ({ matche
   }, [currentPreset, grandFinalGameKeys, grandFinalMatchesAll, canonicalizeTeam]);
 
   const championTeamName = useMemo(() => {
-    // Survival Stage has no single "winner" - a group of teams advance instead (see the
-    // "Advancing" highlight below), so it never gets a champion crown.
-    if (viewMode === "league" || viewMode === "survival") return null;
+    // Survival Stage and Last Chance Qualifier have no single "winner" - a group of teams advance
+    // instead (see the "Advancing" highlight below), so neither ever gets a champion crown.
+    if (viewMode === "league" || viewMode === "survival" || viewMode === "lcq") return null;
     const isDecidingStage = viewMode === "final" || (viewMode === "overall" && !hasGrandFinalMatches);
     if (!isDecidingStage) return null;
 
@@ -475,7 +496,7 @@ export const TournamentStandings: React.FC<TournamentStandingsProps> = ({ matche
                 </div>
                 <div>
                   <h3 className={`font-bold font-display text-base uppercase tracking-tight flex items-center gap-2 ${isDarkMode ? "text-slate-100" : "text-slate-900"}`}>
-                    {viewMode === "final" ? "Grand Final Standings" : viewMode === "survival" ? "Survival Stage Standings" : "Overall League Standings"}
+                    {viewMode === "final" ? "Grand Final Standings" : viewMode === "survival" ? "Survival Stage Standings" : viewMode === "lcq" ? "Last Chance Qualifier Standings" : "Overall League Standings"}
                     {selectedTournament && selectedTournament === activeTournamentName && (
                       <span className="px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-500 text-[9px] font-black uppercase tracking-wider">
                         ★ Highlighted
@@ -532,17 +553,32 @@ export const TournamentStandings: React.FC<TournamentStandingsProps> = ({ matche
                   League Points
                 </button>
               )}
-              <button
-                type="button"
-                onClick={() => setViewMode("survival")}
-                className={`px-4 py-1.5 rounded-xl text-[10px] font-black font-mono uppercase tracking-wider transition-all cursor-pointer border ${
-                  viewMode === "survival"
-                    ? "bg-teal-500 text-slate-950 border-teal-500"
-                    : isDarkMode ? "bg-slate-950 text-slate-400 border-slate-800 hover:text-white" : "bg-white text-slate-600 border-slate-200 hover:text-slate-900"
-                }`}
-              >
-                Survival Stage
-              </button>
+              {hasSurvivalStageMatches && (
+                <button
+                  type="button"
+                  onClick={() => setViewMode("survival")}
+                  className={`px-4 py-1.5 rounded-xl text-[10px] font-black font-mono uppercase tracking-wider transition-all cursor-pointer border ${
+                    viewMode === "survival"
+                      ? "bg-teal-500 text-slate-950 border-teal-500"
+                      : isDarkMode ? "bg-slate-950 text-slate-400 border-slate-800 hover:text-white" : "bg-white text-slate-600 border-slate-200 hover:text-slate-900"
+                  }`}
+                >
+                  Survival Stage
+                </button>
+              )}
+              {hasLastChanceQualifierMatches && (
+                <button
+                  type="button"
+                  onClick={() => setViewMode("lcq")}
+                  className={`px-4 py-1.5 rounded-xl text-[10px] font-black font-mono uppercase tracking-wider transition-all cursor-pointer border ${
+                    viewMode === "lcq"
+                      ? "bg-indigo-500 text-slate-950 border-indigo-500"
+                      : isDarkMode ? "bg-slate-950 text-slate-400 border-slate-800 hover:text-white" : "bg-white text-slate-600 border-slate-200 hover:text-slate-900"
+                  }`}
+                >
+                  Last Chance Qualifier
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => setViewMode("final")}
@@ -589,6 +625,17 @@ export const TournamentStandings: React.FC<TournamentStandingsProps> = ({ matche
                 {currentPreset?.survivalStageAdvanceCount
                   ? <span>Top <strong className="text-teal-400">{currentPreset.survivalStageAdvanceCount}</strong> teams advance to Grand Final - fresh points for this stage, not carried over from Overall.</span>
                   : <span className="text-slate-500">Fresh points for this stage, not carried over from Overall. Set "Teams Advancing to Grand Final" in this tournament's settings to highlight who's advancing.</span>}
+              </div>
+            )}
+
+            {/* Last Chance Qualifier status - same idea as Survival Stage above. */}
+            {viewMode === "lcq" && (
+              <div className={`mb-4 p-3 rounded-xl border text-[11px] font-mono ${
+                isDarkMode ? "bg-slate-950/40 border-slate-850 text-slate-300" : "bg-slate-50 border-slate-200 text-slate-700"
+              }`}>
+                {currentPreset?.lastChanceQualifierAdvanceCount
+                  ? <span>Top <strong className="text-indigo-400">{currentPreset.lastChanceQualifierAdvanceCount}</strong> teams advance into the main event - fresh points for this stage, not carried over from Overall.</span>
+                  : <span className="text-slate-500">Fresh points for this stage, not carried over from Overall. Set "Teams Advancing" in this tournament's settings to highlight who's advancing.</span>}
               </div>
             )}
 
@@ -802,6 +849,11 @@ export const TournamentStandings: React.FC<TournamentStandingsProps> = ({ matche
                               )}
                               {viewMode === "survival" && !!currentPreset?.survivalStageAdvanceCount && rank <= currentPreset.survivalStageAdvanceCount && (
                                 <span className="px-1.5 py-0.5 rounded bg-teal-500/10 border border-teal-500/30 text-teal-400 text-[8px] font-black uppercase tracking-wider whitespace-nowrap">
+                                  ✅ Advancing
+                                </span>
+                              )}
+                              {viewMode === "lcq" && !!currentPreset?.lastChanceQualifierAdvanceCount && rank <= currentPreset.lastChanceQualifierAdvanceCount && (
+                                <span className="px-1.5 py-0.5 rounded bg-indigo-500/10 border border-indigo-500/30 text-indigo-400 text-[8px] font-black uppercase tracking-wider whitespace-nowrap">
                                   ✅ Advancing
                                 </span>
                               )}

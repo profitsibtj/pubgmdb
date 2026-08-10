@@ -17,6 +17,7 @@ const mapMatchFromDb = (row: any) => {
     teams: row.teams || [],
     isGrandFinal: !!row.is_grand_final,
     isSurvivalStage: !!row.is_survival_stage,
+    isLastChanceQualifier: !!row.is_last_chance_qualifier,
     customColumns: row.custom_columns || undefined,
     createdAt: row.created_at || "",
     updatedAt: row.updated_at || "",
@@ -37,6 +38,7 @@ const mapMatchToDb = (data: any) => {
     teams: data.teams || null,
     is_grand_final: !!data.isGrandFinal,
     is_survival_stage: !!data.isSurvivalStage,
+    is_last_chance_qualifier: !!data.isLastChanceQualifier,
     custom_columns: data.customColumns || null,
   };
 };

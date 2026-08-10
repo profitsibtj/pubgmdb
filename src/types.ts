@@ -72,6 +72,7 @@ export interface Match {
   isDailyStats?: boolean;
   isGrandFinal?: boolean; // Marks this match as part of the Grand Final stage, kept separate from the overall/regular-season standings for the same league
   isSurvivalStage?: boolean; // Marks this match as part of the Survival Stage - a separate, fresh-points stage some tournaments run between Group Stage and Grand Final, also kept out of the overall/regular-season standings
+  isLastChanceQualifier?: boolean; // Marks this match as part of the Last Chance Qualifier - a separate, fresh-points stage feeding a limited number of teams into the main event, also kept out of the overall/regular-season standings
   customColumns?: CustomColumn[];
 }
 

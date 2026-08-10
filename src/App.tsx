@@ -31,6 +31,7 @@ const SUPABASE_SETUP_SQL = `CREATE TABLE IF NOT EXISTS matches (
   teams jsonb,
   is_grand_final boolean DEFAULT false,
   is_survival_stage boolean DEFAULT false,
+  is_last_chance_qualifier boolean DEFAULT false,
   custom_columns jsonb,
   created_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
   updated_at timestamp with time zone
@@ -41,6 +42,7 @@ const SUPABASE_SETUP_SQL = `CREATE TABLE IF NOT EXISTS matches (
 ALTER TABLE matches ADD COLUMN IF NOT EXISTS patch text;
 ALTER TABLE matches ADD COLUMN IF NOT EXISTS is_grand_final boolean DEFAULT false;
 ALTER TABLE matches ADD COLUMN IF NOT EXISTS is_survival_stage boolean DEFAULT false;
+ALTER TABLE matches ADD COLUMN IF NOT EXISTS is_last_chance_qualifier boolean DEFAULT false;
 ALTER TABLE matches ADD COLUMN IF NOT EXISTS match_time text;
 ALTER TABLE matches ADD COLUMN IF NOT EXISTS custom_columns jsonb;
 

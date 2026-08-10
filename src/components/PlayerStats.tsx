@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from "react";
 import { Match } from "../types";
-import { calculatePlacementPoints, getTournamentTeamList, canonicalizeTeamName, matchRosterPlayer, canonicalCustomKey, looksLikeTimeValue, remapPlayerCustomKeys } from "../utils";
+import { calculatePlacementPoints, getTournamentTeamList, canonicalizeTeamName, matchRosterPlayer, canonicalCustomKey, looksLikeTimeValue, remapPlayerCustomKeys, getTeamGroupMap } from "../utils";
 import { RosterPlayer } from "./RosterManager";
 import {
   Search, User, Award, Grid, List, Trash2, Lock, ShieldAlert, Pencil, Crown
@@ -73,6 +73,7 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
 }) => {
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedTeam, setSelectedTeam] = useState("ALL");
+  const [selectedGroup, setSelectedGroup] = useState("ALL");
   const [selectedLeague, setSelectedLeague] = useState("ALL");
   // "ALL" = the whole tournament's combined total (default). Otherwise scopes the table to a
   // single day/week/tournament-wide record instead of the old side-by-side comparison of every
@@ -108,10 +109,12 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
     records: { league: string; date?: string; week?: string; tournamentWide?: boolean; label: string }[];
   }>({ isOpen: false, playerName: "", records: [] });
 
-  // Reset selected team/period whenever selected league changes - the available periods differ
-  // per league, so a period key from the previous league would otherwise silently match nothing.
+  // Reset selected team/group/period whenever selected league changes - the available periods and
+  // groups differ per league, so a leftover selection from the previous league would otherwise
+  // silently match nothing (or the wrong thing, for a group letter that happens to also exist there).
   useEffect(() => {
     setSelectedTeam("ALL");
+    setSelectedGroup("ALL");
     setPeriodFilter("ALL");
   }, [selectedLeague]);
 
@@ -293,6 +296,18 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
   const activeLeaguePreset = selectedLeague !== "ALL" ? presetsByLeague[selectedLeague.trim().toLowerCase()] : null;
   const mvpFormula: MvpAspect[] = activeLeaguePreset?.mvpFormula || [];
 
+  // Team name -> group letter (A-E), for the "Filter Group" control below - same opt-in as Match
+  // Standings (Tournament Settings > "Enable Group Standings Filter"), so this only shows up once
+  // Group A-E's team lists are actually being kept up to date for this league.
+  const teamGroupMap = useMemo(() => {
+    if (!activeLeaguePreset?.groupStandingsEnabled) return {};
+    return getTeamGroupMap(activeLeaguePreset);
+  }, [activeLeaguePreset]);
+  const groupsList = useMemo(() => {
+    const letters = Array.from(new Set(Object.values(teamGroupMap))).sort();
+    return letters.length > 0 ? ["ALL", ...letters] : [];
+  }, [teamGroupMap]);
+
   // Extract all individual player match records across all teams & games
   const playerStats = useMemo(() => {
     const stats: { [id: string]: any } = {};
@@ -305,6 +320,8 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
         const teamName = canonicalizeTeamForMatch(t.name, m.league || "");
         // Filter by team
         if (selectedTeam !== "ALL" && teamName !== selectedTeam) return;
+        // Filter by group
+        if (selectedGroup !== "ALL" && teamGroupMap[teamName] !== selectedGroup) return;
 
         (t.players || []).forEach((p) => {
           const identity = canonicalizePlayerForMatch(p.name.trim(), m.league || "", t.name || "");
@@ -468,7 +485,7 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
         mvpScore: mvpScore !== null ? Math.round(mvpScore * 1000) / 1000 : null
       };
     });
-  }, [matches, selectedLeague, selectedTeam, canonicalizeTeamForMatch, canonicalizePlayerForMatch, mvpFormula]);
+  }, [matches, selectedLeague, selectedTeam, selectedGroup, teamGroupMap, canonicalizeTeamForMatch, canonicalizePlayerForMatch, mvpFormula]);
 
   // When a specific day/week/tournament-wide period is picked (instead of "ALL"/Keseluruhan),
   // swap each player's totals for just that one record's numbers and drop anyone who didn't
@@ -622,7 +639,7 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
       <div className={`p-5 rounded-2xl flex flex-col gap-4 transition-all ${
         isDarkMode ? "bg-slate-900/50" : "bg-white border border-slate-200 shadow-sm"
       }`}>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3.5">
           {/* Player Search Input */}
           <div className="space-y-1">
             <label className="text-[10px] font-mono font-bold text-slate-500 uppercase">SEARCH PRO PLAYER:</label>
@@ -682,6 +699,26 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
               )}
             </select>
           </div>
+
+          {/* Group Dropdown - only shown once this league has "Enable Group Standings Filter"
+              turned on (same opt-in Tournament Settings uses), same reasoning as there: an
+              incomplete/stale Group A-E roster would otherwise misleadingly show a near-empty group. */}
+          {groupsList.length > 0 && (
+            <div className="space-y-1">
+              <label className="text-[10px] font-mono font-bold text-slate-500 uppercase">FILTER GROUP:</label>
+              <select
+                value={selectedGroup}
+                onChange={(e) => setSelectedGroup(e.target.value)}
+                className={`w-full p-2 rounded-lg text-xs font-mono border focus:outline-none focus:ring-1 focus:ring-amber-500 cursor-pointer ${
+                  isDarkMode ? "bg-slate-950 border-slate-800 text-white" : "bg-slate-50 border-slate-300 text-slate-900"
+                }`}
+              >
+                {groupsList.map((g) => (
+                  <option key={g} value={g}>{g === "ALL" ? "-- ALL GROUPS --" : `Group ${g}`}</option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {/* Period Dropdown - "Keseluruhan" (ALL) is the whole tournament's combined total;
               otherwise scopes the table to just one recorded day/week/tournament-wide record. */}
