@@ -337,3 +337,71 @@ export const calculateLeagueRankStandings = (
   });
 };
 
+// Ranks teams within just the Survival Stage or Last Chance Qualifier matches of one league (same
+// points-then-WWCD-then-tiebreaker order as Tournament Standings' own table), so the confirmed top
+// N teams there can be carried straight into the next stage's team list instead of an admin
+// re-typing them from the Standings screen by hand.
+export const calculateStageStandingsOrder = (
+  matches: Match[],
+  leagueName: string,
+  stage: "survival" | "lcq",
+  tiebreaker: "WWCD-PlacementPoint-Kill" | "WWCD-Kill-PlacementPoint" = "WWCD-PlacementPoint-Kill",
+  canonicalizeName: (rawName: string) => string = (n) => n.trim()
+): string[] => {
+  const relevantMatches = matches.filter(m =>
+    !m.isDailyStats && m.league === leagueName &&
+    (stage === "survival" ? m.isSurvivalStage : m.isLastChanceQualifier)
+  );
+
+  const teamAgg: Record<string, {
+    totalPoints: number;
+    wwcdCount: number;
+    placementPoints: number;
+    eliminationPoints: number;
+    matchesPlayed: number;
+  }> = {};
+
+  relevantMatches.forEach(m => {
+    m.teams.forEach(t => {
+      const name = canonicalizeName(t.name.trim());
+      if (!name) return;
+      if (!teamAgg[name]) {
+        teamAgg[name] = { totalPoints: 0, wwcdCount: 0, placementPoints: 0, eliminationPoints: 0, matchesPlayed: 0 };
+      }
+      const stats = teamAgg[name];
+      stats.totalPoints += Number(t.totalPoints) || 0;
+      stats.wwcdCount += t.placement === 1 ? 1 : 0;
+      stats.placementPoints += Number(t.placementPoints) || 0;
+      stats.eliminationPoints += Number(t.eliminationPoints) || 0;
+      stats.matchesPlayed += 1;
+    });
+  });
+
+  return Object.entries(teamAgg)
+    .sort(([, a], [, b]) => {
+      if (b.totalPoints !== a.totalPoints) return b.totalPoints - a.totalPoints;
+      if (b.wwcdCount !== a.wwcdCount) return b.wwcdCount - a.wwcdCount;
+      if (tiebreaker === "WWCD-PlacementPoint-Kill") {
+        if (b.placementPoints !== a.placementPoints) return b.placementPoints - a.placementPoints;
+        if (b.eliminationPoints !== a.eliminationPoints) return b.eliminationPoints - a.eliminationPoints;
+      } else {
+        if (b.eliminationPoints !== a.eliminationPoints) return b.eliminationPoints - a.eliminationPoints;
+        if (b.placementPoints !== a.placementPoints) return b.placementPoints - a.placementPoints;
+      }
+      return a.matchesPlayed - b.matchesPlayed;
+    })
+    .map(([name]) => name);
+};
+
+// Fisher-Yates shuffle, used to randomize the order advancing teams get carried into the next
+// stage's team list - their Survival Stage/LCQ standing rank shouldn't leak into the next lobby's
+// seed order.
+export const shuffleArray = <T,>(arr: T[]): T[] => {
+  const result = [...arr];
+  for (let i = result.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [result[i], result[j]] = [result[j], result[i]];
+  }
+  return result;
+};
+
