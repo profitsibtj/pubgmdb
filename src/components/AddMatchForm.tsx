@@ -616,6 +616,85 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
     return getTeamsFromActiveTournament(tour, tour.format, tour.activeMatchup, tour.activeGroup || "A");
   };
 
+  type StageTeamsField = "grandFinalTeamsText" | "survivalStageTeamsText" | "lastChanceQualifierTeamsText";
+
+  // Every team name already typed anywhere in this tournament (Group Stage's roster, plus
+  // whatever's already in Survival Stage/LCQ/Grand Final's own lists) - offered as autocomplete
+  // suggestions when building each stage's team list below, so advancing teams can be picked
+  // instead of retyped (and mistyped) from scratch. Still a free-text field underneath, since LCQ
+  // in particular can include teams that never appeared in Group Stage at all.
+  const knownTournamentTeams = useMemo(() => {
+    if (!activeTournament) return [];
+    const pool = new Set<string>();
+    getTournamentTeamList(activeTournament).forEach(t => pool.add(t));
+    ([activeTournament.survivalStageTeamsText, activeTournament.lastChanceQualifierTeamsText, activeTournament.grandFinalTeamsText] as (string | undefined)[])
+      .forEach(text => (text || "").split("\n").map(t => t.trim()).filter(Boolean).forEach(t => pool.add(t)));
+    return Array.from(pool).sort();
+  }, [activeTournament]);
+
+  // Stage team lists are stored the same way as before (one newline-joined string per stage) -
+  // only the editing UI below changes, from a plain textarea to one autocomplete row per team.
+  const getStageTeamRows = (field: StageTeamsField): string[] => {
+    const text = activeTournament?.[field] || "";
+    return text.length > 0 ? text.split("\n") : [];
+  };
+
+  const handleStageTeamRowChange = (field: StageTeamsField, index: number, value: string) => {
+    const rows = [...getStageTeamRows(field)];
+    rows[index] = value;
+    updateActiveTournament({ [field]: rows.join("\n") } as Partial<TournamentPreset>);
+  };
+
+  const handleAddStageTeamRow = (field: StageTeamsField) => {
+    updateActiveTournament({ [field]: [...getStageTeamRows(field), ""].join("\n") } as Partial<TournamentPreset>);
+  };
+
+  const handleRemoveStageTeamRow = (field: StageTeamsField, index: number) => {
+    updateActiveTournament({ [field]: getStageTeamRows(field).filter((_, i) => i !== index).join("\n") } as Partial<TournamentPreset>);
+  };
+
+  // One autocomplete row per team (backed by the shared "known-tournament-teams" datalist below)
+  // instead of a plain textarea - reused for Grand Final/Survival Stage/LCQ's team lists.
+  const renderStageTeamRows = (field: StageTeamsField, ring: string) => {
+    const rows = getStageTeamRows(field);
+    return (
+      <div className="space-y-1.5">
+        {rows.length === 0 && (
+          <p className="text-[9px] text-slate-500 italic">No teams added yet.</p>
+        )}
+        {rows.map((team, idx) => (
+          <div key={idx} className="flex items-center gap-2">
+            <span className="text-[10px] font-mono font-bold text-slate-500 w-5 shrink-0">{idx + 1}.</span>
+            <input
+              type="text"
+              list="known-tournament-teams"
+              value={team}
+              onChange={(e) => handleStageTeamRowChange(field, idx, e.target.value)}
+              placeholder="Select or type a team..."
+              className={`flex-1 p-2 rounded-lg text-xs font-mono border focus:outline-none focus:ring-1 ${ring} ${isDarkMode ? "bg-slate-900 border-slate-800 text-slate-100" : "bg-white border-slate-300 text-slate-900"}`}
+            />
+            <button
+              type="button"
+              onClick={() => handleRemoveStageTeamRow(field, idx)}
+              className="text-slate-600 hover:text-red-400 cursor-pointer shrink-0"
+              title="Remove"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        ))}
+        <button
+          type="button"
+          onClick={() => handleAddStageTeamRow(field)}
+          className="px-2.5 py-1 bg-slate-800/60 hover:bg-slate-700 text-slate-300 rounded-lg text-[10px] font-bold flex items-center gap-1 cursor-pointer border border-slate-700/60"
+        >
+          <Plus className="w-3 h-3" />
+          Add Team
+        </button>
+      </div>
+    );
+  };
+
   const getGroupList = (text: string, count = 8) => {
     const list = (text || "").split("\n");
     while (list.length < count) list.push("");
@@ -1108,6 +1187,11 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
 
   return (
     <div className={`p-6 rounded-2xl shadow-xl transition-all ${isDarkMode ? "bg-slate-900/50" : "bg-white border border-slate-200"}`}>
+      <datalist id="known-tournament-teams">
+        {knownTournamentTeams.map(t => (
+          <option key={t} value={t} />
+        ))}
+      </datalist>
       <div className="border-b pb-4 mb-4 border-slate-800">
         <h2 className={`text-lg font-bold font-display uppercase tracking-tight ${isDarkMode ? "text-slate-100" : "text-slate-900"}`}>
           {editingMatch ? "EDIT DATA MATCH RECORD" : editingSchedule ? "EDIT SCHEDULED MATCH" : "ADD NEW MATCH DATA"}
@@ -1360,30 +1444,51 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
           </div>
         </div>
 
-        {/* GRAND FINAL FLAG */}
-        <div className={`flex flex-wrap items-center gap-2.5 p-3 rounded-xl border transition-all ${
-          isGrandFinal
-            ? "bg-amber-500/10 border-amber-500/30"
-            : isDarkMode ? "bg-slate-950/40 border-slate-850" : "bg-slate-50 border-slate-200"
+        {/* MATCH STAGE BAR - one row instead of 3 stacked checkboxes, since a match can only be in
+            one of these at a time (or none, the default Group Stage). */}
+        <div className={`flex flex-wrap items-center gap-3 p-3 rounded-xl border transition-all ${
+          isDarkMode ? "bg-slate-950/40 border-slate-850" : "bg-slate-50 border-slate-200"
         }`}>
-          <label className="flex items-center gap-2.5 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={isGrandFinal}
-              onChange={(e) => {
-                setIsGrandFinal(e.target.checked);
-                if (e.target.checked) {
-                  setIsSurvivalStage(false);
-                  setIsLastChanceQualifier(false);
-                }
-              }}
-              className="w-4 h-4 accent-amber-500 cursor-pointer"
-            />
-            <span className={`text-[11px] font-mono font-bold uppercase ${isGrandFinal ? "text-amber-500" : isDarkMode ? "text-slate-300" : "text-slate-600"}`}>
-              Mark as Grand Final Match
-            </span>
-            <span className="text-[9px] text-slate-500 normal-case">(separated from the overall standings of the same league in Standings)</span>
-          </label>
+          <span className="text-[10px] font-mono font-bold text-slate-500 uppercase shrink-0">Match Stage:</span>
+          <div className="flex flex-wrap items-center gap-1.5">
+            {([
+              ["group", "Group Stage"],
+              ["survival", "Survival Stage"],
+              ["lcq", "Last Chance Qualifier"],
+              ["final", "Grand Final"]
+            ] as const).map(([key, label]) => {
+              const isActive = key === "group" ? (!isGrandFinal && !isSurvivalStage && !isLastChanceQualifier)
+                : key === "survival" ? isSurvivalStage
+                : key === "lcq" ? isLastChanceQualifier
+                : isGrandFinal;
+              const activeClass = key === "survival" ? "bg-teal-500 border-teal-500 text-slate-950"
+                : key === "lcq" ? "bg-indigo-500 border-indigo-500 text-slate-950"
+                : key === "final" ? "bg-amber-500 border-amber-500 text-slate-950"
+                : isDarkMode ? "bg-slate-700 border-slate-600 text-slate-100" : "bg-slate-300 border-slate-300 text-slate-900";
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => {
+                    setIsGrandFinal(key === "final");
+                    setIsSurvivalStage(key === "survival");
+                    setIsLastChanceQualifier(key === "lcq");
+                  }}
+                  title={
+                    key === "survival" ? "Its own fresh-points table in Standings, separate from Overall and Grand Final"
+                    : key === "lcq" ? "Its own fresh-points table in Standings, separate from Overall, Survival Stage and Grand Final"
+                    : key === "final" ? "Separated from the overall standings of the same league in Standings"
+                    : undefined
+                  }
+                  className={`px-3 py-1.5 rounded-lg text-[10px] font-mono font-bold uppercase tracking-wide transition-all cursor-pointer border ${
+                    isActive ? activeClass : isDarkMode ? "bg-slate-900 border-slate-800 text-slate-400 hover:text-white" : "bg-white border-slate-200 text-slate-600 hover:text-slate-900"
+                  }`}
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
 
           {isGrandFinal && activeTournament?.leagueRankPointsEnabled && (
             <button
@@ -1397,60 +1502,6 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
               {activeTournament.finalBonusMode === "rankTable" ? "Fill Bonus Points from Rank Table" : "Fill Bonus Points from League Points"}
             </button>
           )}
-        </div>
-
-        {/* SURVIVAL STAGE FLAG - a separate, fresh-points stage some tournaments run between Group
-            Stage and Grand Final (mutually exclusive with Grand Final above). */}
-        <div className={`flex flex-wrap items-center gap-2.5 p-3 rounded-xl border transition-all ${
-          isSurvivalStage
-            ? "bg-teal-500/10 border-teal-500/30"
-            : isDarkMode ? "bg-slate-950/40 border-slate-850" : "bg-slate-50 border-slate-200"
-        }`}>
-          <label className="flex items-center gap-2.5 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={isSurvivalStage}
-              onChange={(e) => {
-                setIsSurvivalStage(e.target.checked);
-                if (e.target.checked) {
-                  setIsGrandFinal(false);
-                  setIsLastChanceQualifier(false);
-                }
-              }}
-              className="w-4 h-4 accent-teal-500 cursor-pointer"
-            />
-            <span className={`text-[11px] font-mono font-bold uppercase ${isSurvivalStage ? "text-teal-400" : isDarkMode ? "text-slate-300" : "text-slate-600"}`}>
-              Mark as Survival Stage Match
-            </span>
-            <span className="text-[9px] text-slate-500 normal-case">(its own fresh-points table in Standings, separate from Overall and Grand Final)</span>
-          </label>
-        </div>
-
-        {/* LAST CHANCE QUALIFIER FLAG - a separate, fresh-points stage feeding a limited number of
-            teams into the main event (mutually exclusive with Grand Final/Survival Stage above). */}
-        <div className={`flex flex-wrap items-center gap-2.5 p-3 rounded-xl border transition-all ${
-          isLastChanceQualifier
-            ? "bg-indigo-500/10 border-indigo-500/30"
-            : isDarkMode ? "bg-slate-950/40 border-slate-850" : "bg-slate-50 border-slate-200"
-        }`}>
-          <label className="flex items-center gap-2.5 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={isLastChanceQualifier}
-              onChange={(e) => {
-                setIsLastChanceQualifier(e.target.checked);
-                if (e.target.checked) {
-                  setIsGrandFinal(false);
-                  setIsSurvivalStage(false);
-                }
-              }}
-              className="w-4 h-4 accent-indigo-500 cursor-pointer"
-            />
-            <span className={`text-[11px] font-mono font-bold uppercase ${isLastChanceQualifier ? "text-indigo-400" : isDarkMode ? "text-slate-300" : "text-slate-600"}`}>
-              Mark as Last Chance Qualifier Match
-            </span>
-            <span className="text-[9px] text-slate-500 normal-case">(its own fresh-points table in Standings, separate from Overall, Survival Stage and Grand Final)</span>
-          </label>
         </div>
 
         {/* MANUAL ENTRY LAYOUT */}
@@ -1600,15 +1651,9 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
                       another's. Free-form (one team per line): Grand Final's team count varies by
                       tournament and isn't necessarily fixed at 16. */}
                   <div className="bg-slate-950/20 p-4 rounded-xl border border-slate-850/60">
-                    <label className="text-[10px] font-mono font-bold text-amber-500 uppercase tracking-wider block mb-2">Grand Final: Team List (one per line)</label>
-                    <textarea
-                      value={activeTournament?.grandFinalTeamsText || ""}
-                      onChange={(e) => updateActiveTournament({ grandFinalTeamsText: e.target.value })}
-                      placeholder={"Team A\nTeam B\n..."}
-                      rows={5}
-                      className={`w-full p-2 rounded-lg text-xs font-mono border focus:outline-none focus:ring-1 focus:ring-amber-500 resize-y ${isDarkMode ? "bg-slate-900 border-slate-800 text-slate-100" : "bg-white border-slate-300 text-slate-900"}`}
-                    />
-                    <p className="text-[9px] text-slate-500 mt-2 leading-relaxed">Used for the lobby grid below whenever "Mark as Grand Final Match" is checked. Team count isn't fixed - add or remove lines as the bracket firms up.</p>
+                    <label className="text-[10px] font-mono font-bold text-amber-500 uppercase tracking-wider block mb-2">Grand Final: Team List</label>
+                    {renderStageTeamRows("grandFinalTeamsText", "focus:ring-amber-500")}
+                    <p className="text-[9px] text-slate-500 mt-2 leading-relaxed">Used for the lobby grid below whenever "Mark as Grand Final Match" is checked. Pick from teams already in this tournament or type a new one - team count isn't fixed, add or remove rows as the bracket firms up.</p>
                   </div>
 
                   {/* Survival Stage advance count + its own team list - only meaningful once at
@@ -1629,15 +1674,9 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
                       <p className="text-[9px] text-slate-500 mt-2 leading-relaxed">How many top teams advance out of Survival Stage (to Grand Final and/or Last Chance Qualifier, however this tournament splits it) - varies per tournament. Used in Standings to highlight who's advancing once matches there are marked "Survival Stage" below. Leave blank to skip the highlight.</p>
                     </div>
                     <div className="pt-2 border-t border-slate-850/60">
-                      <label className="text-[10px] font-mono font-bold text-teal-400 uppercase tracking-wider block mb-2">Survival Stage: Team List (one per line)</label>
-                      <textarea
-                        value={activeTournament?.survivalStageTeamsText || ""}
-                        onChange={(e) => updateActiveTournament({ survivalStageTeamsText: e.target.value })}
-                        placeholder={"Team A\nTeam B\n..."}
-                        rows={5}
-                        className={`w-full p-2 rounded-lg text-xs font-mono border focus:outline-none focus:ring-1 focus:ring-teal-500 resize-y ${isDarkMode ? "bg-slate-900 border-slate-800 text-slate-100" : "bg-white border-slate-300 text-slate-900"}`}
-                      />
-                      <p className="text-[9px] text-slate-500 mt-2 leading-relaxed">Used for the lobby grid below whenever "Mark as Survival Stage Match" is checked. Team count isn't fixed - add or remove lines as needed.</p>
+                      <label className="text-[10px] font-mono font-bold text-teal-400 uppercase tracking-wider block mb-2">Survival Stage: Team List</label>
+                      {renderStageTeamRows("survivalStageTeamsText", "focus:ring-teal-500")}
+                      <p className="text-[9px] text-slate-500 mt-2 leading-relaxed">Used for the lobby grid below whenever "Mark as Survival Stage Match" is checked. Pick from teams already in this tournament (e.g. Group Stage's roster) or type a new one - team count isn't fixed, add or remove rows as needed.</p>
                     </div>
                   </div>
 
@@ -1657,15 +1696,9 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
                       <p className="text-[9px] text-slate-500 mt-2 leading-relaxed">How many top teams advance out of the Last Chance Qualifier into Grand Final - varies per tournament. Used in Standings to highlight who's advancing once matches there are marked "Last Chance Qualifier" below. Leave blank to skip the highlight.</p>
                     </div>
                     <div className="pt-2 border-t border-slate-850/60">
-                      <label className="text-[10px] font-mono font-bold text-indigo-400 uppercase tracking-wider block mb-2">Last Chance Qualifier: Team List (one per line)</label>
-                      <textarea
-                        value={activeTournament?.lastChanceQualifierTeamsText || ""}
-                        onChange={(e) => updateActiveTournament({ lastChanceQualifierTeamsText: e.target.value })}
-                        placeholder={"Team A\nTeam B\n..."}
-                        rows={5}
-                        className={`w-full p-2 rounded-lg text-xs font-mono border focus:outline-none focus:ring-1 focus:ring-indigo-500 resize-y ${isDarkMode ? "bg-slate-900 border-slate-800 text-slate-100" : "bg-white border-slate-300 text-slate-900"}`}
-                      />
-                      <p className="text-[9px] text-slate-500 mt-2 leading-relaxed">Used for the lobby grid below whenever "Mark as Last Chance Qualifier Match" is checked. Team count isn't fixed - add or remove lines as needed.</p>
+                      <label className="text-[10px] font-mono font-bold text-indigo-400 uppercase tracking-wider block mb-2">Last Chance Qualifier: Team List</label>
+                      {renderStageTeamRows("lastChanceQualifierTeamsText", "focus:ring-indigo-500")}
+                      <p className="text-[9px] text-slate-500 mt-2 leading-relaxed">Used for the lobby grid below whenever "Mark as Last Chance Qualifier Match" is checked. Pick from teams already in this tournament or type a new one (LCQ can include teams that never played Group Stage) - team count isn't fixed, add or remove rows as needed.</p>
                     </div>
                   </div>
 
