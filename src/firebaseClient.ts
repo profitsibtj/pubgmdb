@@ -79,6 +79,9 @@ const mapScheduleFromDb = (row: any): ScheduleEntry => {
     scheduledAt: row.scheduled_at || "",
     liveLink: row.live_link || "",
     isFinished: !!row.is_finished,
+    isGrandFinal: !!row.is_grand_final,
+    isSurvivalStage: !!row.is_survival_stage,
+    isLastChanceQualifier: !!row.is_last_chance_qualifier,
     createdAt: row.created_at || "",
   };
 };
@@ -93,6 +96,9 @@ const mapScheduleToDb = (data: any) => {
     scheduled_at: data.scheduledAt || null,
     live_link: data.liveLink || null,
     is_finished: !!data.isFinished,
+    is_grand_final: !!data.isGrandFinal,
+    is_survival_stage: !!data.isSurvivalStage,
+    is_last_chance_qualifier: !!data.isLastChanceQualifier,
   };
 };
 

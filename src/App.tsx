@@ -434,12 +434,22 @@ export default function App() {
   // so the league/map/date/title don't have to be retyped after already being set on the schedule.
   // scheduleToFinishOnSaveId is remembered so that once the resulting match saves successfully,
   // that schedule entry is automatically flipped to Finished - no separate manual step needed.
-  const [matchPrefill, setMatchPrefill] = useState<{ league?: string; map?: string; date?: string; time?: string; matchCode?: string; gameNo?: string } | null>(null);
+  const [matchPrefill, setMatchPrefill] = useState<{ league?: string; map?: string; date?: string; time?: string; matchCode?: string; gameNo?: string; isGrandFinal?: boolean; isSurvivalStage?: boolean; isLastChanceQualifier?: boolean } | null>(null);
   const [scheduleToFinishOnSaveId, setScheduleToFinishOnSaveId] = useState<string | null>(null);
 
   const handleEnterScheduleResults = (schedule: ScheduleEntry) => {
     const gmt7Parts = isoToGmt7Parts(schedule.scheduledAt);
-    setMatchPrefill({ league: schedule.league, map: schedule.map, date: gmt7Parts?.date, time: gmt7Parts?.time, matchCode: schedule.matchCode, gameNo: schedule.gameNo });
+    setMatchPrefill({
+      league: schedule.league,
+      map: schedule.map,
+      date: gmt7Parts?.date,
+      time: gmt7Parts?.time,
+      matchCode: schedule.matchCode,
+      gameNo: schedule.gameNo,
+      isGrandFinal: schedule.isGrandFinal,
+      isSurvivalStage: schedule.isSurvivalStage,
+      isLastChanceQualifier: schedule.isLastChanceQualifier
+    });
     setScheduleToFinishOnSaveId(schedule.id || null);
     setEditingScheduleEntry(null);
     setAdminSubTab("addMatch");
@@ -471,7 +481,11 @@ export default function App() {
 
   const handleViewScheduledMatch = (schedule: ScheduleEntry) => {
     const dateStr = isoToGmt7Parts(schedule.scheduledAt)?.date || "";
-    const match = matches.find(m => m.league === schedule.league && m.date === dateStr);
+    // Normalized (trim + case-insensitive): an exact `===` here silently fails to find the match
+    // whenever the league name differs by stray whitespace or casing between the two records (see
+    // the same fix applied to Match Schedule's "no schedule yet" counter and the auto-finish/
+    // auto-delete pairing below), leaving "View Match" a dead click with no visible error.
+    const match = matches.find(m => (m.league || "").trim().toLowerCase() === (schedule.league || "").trim().toLowerCase() && m.date === dateStr);
     if (match?.id) setMatchFocusRequest({ id: match.id, token: Date.now() });
   };
 
@@ -771,9 +785,14 @@ export default function App() {
       fetchMatches();
       setActiveTab("matches");
       if (!isEdit) {
+        // Normalized league comparison (trim + case-insensitive) - an exact `===` here used to mean
+        // a match result entered directly (not via the "Enter Match Result" button, so
+        // scheduleToFinishOnSaveId is unset) would silently fail to auto-finish its schedule entry
+        // whenever the two records' league strings differed by stray whitespace or casing, leaving
+        // that entry stuck looking "ongoing" in Match Schedule forever.
         const linkedSchedule = scheduleToFinishOnSaveId
           ? schedules.find(s => s.id === scheduleToFinishOnSaveId)
-          : schedules.find(s => !s.isFinished && s.league === matchData.league && isoToGmt7Parts(s.scheduledAt)?.date === matchData.date);
+          : schedules.find(s => !s.isFinished && (s.league || "").trim().toLowerCase() === (matchData.league || "").trim().toLowerCase() && isoToGmt7Parts(s.scheduledAt)?.date === matchData.date);
         if (linkedSchedule) handleSaveSchedule({ ...linkedSchedule, isFinished: true });
         setScheduleToFinishOnSaveId(null);
       }
@@ -825,8 +844,10 @@ export default function App() {
     // If this match corresponds to a schedule entry (same league + date), delete that too so it
     // doesn't linger in Match Schedule after the match it represents is gone.
     const deletedMatch = matches.find(m => m.id === id);
+    // Normalized (trim + case-insensitive) - see handleViewScheduledMatch/handleSaveMatch above for
+    // why an exact `===` here is unreliable.
     const matchingSchedule = deletedMatch
-      ? schedules.find(s => s.league === deletedMatch.league && isoToGmt7Parts(s.scheduledAt)?.date === deletedMatch.date)
+      ? schedules.find(s => (s.league || "").trim().toLowerCase() === (deletedMatch.league || "").trim().toLowerCase() && isoToGmt7Parts(s.scheduledAt)?.date === deletedMatch.date)
       : undefined;
 
     try {

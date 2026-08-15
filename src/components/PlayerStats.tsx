@@ -394,21 +394,18 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
             ps.weapons[p.weapon] = (ps.weapons[p.weapon] || 0) + 1;
           }
 
-          const matchCodeStr = m.matchCode || "";
-          if (matchCodeStr !== "DAILY_20260718 (All Maps)" && !matchCodeStr.includes("DAILY_20260718")) {
-            ps.matchesList.push({
-              date: m.date,
-              matchCode: m.matchCode,
-              map: m.map,
-              teamName: t.name,
-              placement: t.placement || 16,
-              wwcd: m.isDailyStats ? (p.wwcdCount ? p.wwcdCount > 0 : false) : (t.placement === 1),
-              elims: p.elims || 0,
-              damage: p.damage || 0,
-              mvp: !!p.mvp,
-              weapon: p.weapon || "M416"
-            });
-          }
+          ps.matchesList.push({
+            date: m.date,
+            matchCode: m.matchCode,
+            map: m.map,
+            teamName: t.name,
+            placement: t.placement || 16,
+            wwcd: m.isDailyStats ? (p.wwcdCount ? p.wwcdCount > 0 : false) : (t.placement === 1),
+            elims: p.elims || 0,
+            damage: p.damage || 0,
+            mvp: !!p.mvp,
+            weapon: p.weapon || "M416"
+          });
         });
       });
     });

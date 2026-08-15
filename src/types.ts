@@ -50,6 +50,14 @@ export interface ScheduleEntry {
   liveLink?: string;
   isFinished?: boolean; // Manually flagged by an admin once the match wraps up
   createdAt?: string;
+  // Which stage this scheduled match belongs to - same three flags as Match, kept here too so the
+  // Participating Teams list can auto-fill from the right stage's team list (Group Stage's
+  // format-driven roster vs. Grand Final/Survival Stage/LCQ's own free-form lists) instead of
+  // always defaulting to Group Stage, and so the stage carries over correctly once "Enter Match
+  // Result" turns this into a real Match instead of resetting to Group Stage.
+  isGrandFinal?: boolean;
+  isSurvivalStage?: boolean;
+  isLastChanceQualifier?: boolean;
 }
 
 export interface Match {

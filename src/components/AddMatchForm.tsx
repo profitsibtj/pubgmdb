@@ -20,7 +20,7 @@ interface AddMatchFormProps {
   // Deep-link from a Match Schedule entry ("Enter Match Result") so the league, map, date, time,
   // title and (when the schedule entry specified one) game number don't have to be retyped here
   // after already being entered once in the schedule.
-  matchPrefill?: { league?: string; map?: string; date?: string; time?: string; matchCode?: string; gameNo?: string } | null;
+  matchPrefill?: { league?: string; map?: string; date?: string; time?: string; matchCode?: string; gameNo?: string; isGrandFinal?: boolean; isSurvivalStage?: boolean; isLastChanceQualifier?: boolean } | null;
   onConsumedMatchPrefill?: () => void;
   // Lets a brand-new match be saved as a not-yet-played Schedule entry instead of a full result,
   // from this same form - one place to add a match either way, instead of a separate screen.
@@ -391,6 +391,13 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
       const matched = tournaments.find(t => t.name === matchPrefill.league);
       if (matched) setSelectedTournamentId(matched.id);
     }
+    // Carries the stage the schedule entry was created under (Group/Survival/LCQ/Grand Final) into
+    // the full result form, instead of always resetting to Group Stage - which also used to mean
+    // the wrong team list (Group Stage's) got auto-populated for a Grand Final/Survival Stage/LCQ
+    // schedule entry the moment "Enter Match Result" was clicked.
+    setIsGrandFinal(!!matchPrefill.isGrandFinal);
+    setIsSurvivalStage(!!matchPrefill.isSurvivalStage);
+    setIsLastChanceQualifier(!!matchPrefill.isLastChanceQualifier);
     const existingGamesForDay = matchPrefill.league && matchPrefill.date
       ? matches.filter(m => !m.isDailyStats && m.league === matchPrefill.league && m.date === matchPrefill.date).length
       : 0;
@@ -422,6 +429,9 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
       const matched = tournaments.find(t => t.name === editingSchedule.league);
       if (matched) setSelectedTournamentId(matched.id);
     }
+    setIsGrandFinal(!!editingSchedule.isGrandFinal);
+    setIsSurvivalStage(!!editingSchedule.isSurvivalStage);
+    setIsLastChanceQualifier(!!editingSchedule.isLastChanceQualifier);
     const gmt7Parts = isoToGmt7Parts(editingSchedule.scheduledAt);
     setMeta(prev => ({
       ...prev,
@@ -748,6 +758,72 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
     );
   };
 
+  // Shared between the full result form and the schedule-only form (both need to pick which stage
+  // a match belongs to) - one row instead of 3 stacked checkboxes, since a match can only be in one
+  // of these at a time (or none, the default Group Stage). Picking a stage here also drives which
+  // team list auto-fills below (Group Stage's format-driven lobby/group, or Grand Final/Survival
+  // Stage/LCQ's own free-form list), so scheduling e.g. a Grand Final match here doesn't
+  // accidentally fill in Group Stage's roster instead.
+  const renderMatchStageBar = () => (
+    <div className={`flex flex-wrap items-center gap-3 p-3 rounded-xl border transition-all ${
+      isDarkMode ? "bg-slate-950/40 border-slate-850" : "bg-slate-50 border-slate-200"
+    }`}>
+      <span className="text-[10px] font-mono font-bold text-slate-500 uppercase shrink-0">Match Stage:</span>
+      <div className="flex flex-wrap items-center gap-1.5">
+        {([
+          ["group", "Group Stage"],
+          ["survival", "Survival Stage"],
+          ["lcq", "Last Chance Qualifier"],
+          ["final", "Grand Final"]
+        ] as const).map(([key, label]) => {
+          const isActive = key === "group" ? (!isGrandFinal && !isSurvivalStage && !isLastChanceQualifier)
+            : key === "survival" ? isSurvivalStage
+            : key === "lcq" ? isLastChanceQualifier
+            : isGrandFinal;
+          const activeClass = key === "survival" ? "bg-teal-500 border-teal-500 text-slate-950"
+            : key === "lcq" ? "bg-indigo-500 border-indigo-500 text-slate-950"
+            : key === "final" ? "bg-amber-500 border-amber-500 text-slate-950"
+            : isDarkMode ? "bg-slate-700 border-slate-600 text-slate-100" : "bg-slate-300 border-slate-300 text-slate-900";
+          return (
+            <button
+              key={key}
+              type="button"
+              onClick={() => {
+                setIsGrandFinal(key === "final");
+                setIsSurvivalStage(key === "survival");
+                setIsLastChanceQualifier(key === "lcq");
+              }}
+              title={
+                key === "survival" ? "Its own fresh-points table in Standings, separate from Overall and Grand Final"
+                : key === "lcq" ? "Its own fresh-points table in Standings, separate from Overall, Survival Stage and Grand Final"
+                : key === "final" ? "Separated from the overall standings of the same league in Standings"
+                : undefined
+              }
+              className={`px-3 py-1.5 rounded-lg text-[10px] font-mono font-bold uppercase tracking-wide transition-all cursor-pointer border ${
+                isActive ? activeClass : isDarkMode ? "bg-slate-900 border-slate-800 text-slate-400 hover:text-white" : "bg-white border-slate-200 text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              {label}
+            </button>
+          );
+        })}
+      </div>
+
+      {isGrandFinal && activeTournament?.leagueRankPointsEnabled && (
+        <button
+          type="button"
+          onClick={handleFillBonusFromLeaguePoints}
+          className="ml-auto px-3 py-1.5 bg-teal-500/10 hover:bg-teal-500/20 text-teal-400 rounded-lg border border-teal-500/20 text-[10px] font-bold font-mono transition-all cursor-pointer"
+          title={activeTournament.finalBonusMode === "rankTable"
+            ? "Fill in each team's Bonus Points from the Grand Final Bonus rank table, based on their overall regular season standing"
+            : "Fill in each team's Bonus Points from accumulated regular season League Rank Points"}
+        >
+          {activeTournament.finalBonusMode === "rankTable" ? "Fill Bonus Points from Rank Table" : "Fill Bonus Points from League Points"}
+        </button>
+      )}
+    </div>
+  );
+
   const getGroupList = (text: string, count = 8) => {
     const list = (text || "").split("\n");
     while (list.length < count) list.push("");
@@ -809,23 +885,20 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedTournamentId, activeTournament?.format, activeTournament?.activeMatchup, activeTournament?.activeGroup, editingMatch, isGrandFinal, isSurvivalStage, isLastChanceQualifier]);
 
-  // Auto-fill the schedule-mode Participating Teams from this league's currently-configured
-  // lobby/group whenever auto-detected schedule mode turns on or the league changes - same team
-  // list the full form already auto-populates above, so there's nothing to retype. Still freely
-  // editable afterward (only re-fills on that change, not on every keystroke). Skipped while
-  // editing an existing schedule entry - that entry's own team list was already loaded by the
-  // editingSchedule effect above and shouldn't be replaced with the generic lobby default.
+  // Auto-fill the schedule-mode Participating Teams from whichever stage is currently picked in
+  // the Match Stage bar (Group Stage's format-driven lobby/group, or Grand Final/Survival Stage/
+  // LCQ's own free-form list - same source getTeamsForCurrentStage already gives the full form
+  // above), whenever schedule mode turns on, the league changes, or the stage picked changes - so
+  // scheduling e.g. a Grand Final match doesn't silently fill in Group Stage's roster instead.
+  // Still freely editable afterward (only re-fills on that change, not on every keystroke).
+  // Skipped while editing an existing schedule entry - that entry's own team list was already
+  // loaded by the editingSchedule effect above and shouldn't be replaced with the stage default.
   React.useEffect(() => {
     if (!isScheduleOnly || !activeTournament || editingSchedule) return;
-    const names = getTeamsFromActiveTournament(
-      activeTournament,
-      activeTournament.format,
-      activeTournament.activeMatchup,
-      activeTournament.activeGroup || "A"
-    );
+    const names = getTeamsForCurrentStage(activeTournament);
     setScheduleTeamsInput(names.join("\n"));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isScheduleOnly, selectedTournamentId]);
+  }, [isScheduleOnly, selectedTournamentId, isGrandFinal, isSurvivalStage, isLastChanceQualifier]);
 
   // Sync current metadata league to the active tournament name
   React.useEffect(() => {
@@ -1156,9 +1229,10 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
     }
     setIsSubmitting(true);
     try {
-      const teamList = getTournamentTeamList(activeTournament);
+      // knownTournamentTeams (not just getTournamentTeamList's Group Stage roster) so a Grand
+      // Final/Survival Stage/LCQ team name - or an ABBR for one - canonicalizes correctly too.
       const teams = scheduleTeamsInput.split("\n").map(t => t.trim()).filter(Boolean)
-        .map(t => canonicalizeTeamName(t, teamList, activeTournament?.teamAbbreviations));
+        .map(t => canonicalizeTeamName(t, knownTournamentTeams, activeTournament?.teamAbbreviations));
       const scheduledAtIso = gmt7ToIso(meta.date, meta.time);
 
       await onSaveSchedule({
@@ -1170,7 +1244,10 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
         map: meta.map,
         scheduledAt: scheduledAtIso,
         liveLink: meta.liveLink.trim(),
-        isFinished: editingSchedule?.isFinished ?? false
+        isFinished: editingSchedule?.isFinished ?? false,
+        isGrandFinal,
+        isSurvivalStage,
+        isLastChanceQualifier
       });
       setSuccessMsg(editingSchedule ? "Schedule updated successfully!" : "Match scheduled successfully!");
       setTimeout(() => onClose(), 1200);
@@ -1271,6 +1348,7 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
 
       {isScheduleOnly && !editingMatch ? (
         <form onSubmit={handleSubmitSchedule} className="space-y-6">
+          {renderMatchStageBar()}
           <div className={`p-4 rounded-xl border grid grid-cols-1 md:grid-cols-2 gap-4 ${isDarkMode ? "bg-slate-950/40 border-slate-850" : "bg-slate-50 border-slate-200"}`}>
             <div className="space-y-1">
               <label className="text-[10px] font-mono font-bold text-slate-500 uppercase">LEAGUE/COMPETITION:</label>
@@ -1366,7 +1444,7 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
                 rows={6}
                 className={`w-full p-2 rounded-lg text-xs font-mono border focus:outline-none focus:ring-1 focus:ring-amber-500 resize-y ${isDarkMode ? "bg-slate-900 border-slate-800 text-slate-100" : "bg-white border-slate-300 text-slate-900"}`}
               />
-              <p className="text-[9px] text-slate-500">Auto-filled from this league's current lobby/group - edit if this match's lineup is different. One team name per line.</p>
+              <p className="text-[9px] text-slate-500">Auto-filled from whichever Match Stage is picked above (Group Stage's current lobby/group, or Grand Final/Survival Stage/LCQ's own team list) - edit if this match's lineup is different. One team name per line.</p>
             </div>
           </div>
 
@@ -1497,65 +1575,7 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
           </div>
         </div>
 
-        {/* MATCH STAGE BAR - one row instead of 3 stacked checkboxes, since a match can only be in
-            one of these at a time (or none, the default Group Stage). */}
-        <div className={`flex flex-wrap items-center gap-3 p-3 rounded-xl border transition-all ${
-          isDarkMode ? "bg-slate-950/40 border-slate-850" : "bg-slate-50 border-slate-200"
-        }`}>
-          <span className="text-[10px] font-mono font-bold text-slate-500 uppercase shrink-0">Match Stage:</span>
-          <div className="flex flex-wrap items-center gap-1.5">
-            {([
-              ["group", "Group Stage"],
-              ["survival", "Survival Stage"],
-              ["lcq", "Last Chance Qualifier"],
-              ["final", "Grand Final"]
-            ] as const).map(([key, label]) => {
-              const isActive = key === "group" ? (!isGrandFinal && !isSurvivalStage && !isLastChanceQualifier)
-                : key === "survival" ? isSurvivalStage
-                : key === "lcq" ? isLastChanceQualifier
-                : isGrandFinal;
-              const activeClass = key === "survival" ? "bg-teal-500 border-teal-500 text-slate-950"
-                : key === "lcq" ? "bg-indigo-500 border-indigo-500 text-slate-950"
-                : key === "final" ? "bg-amber-500 border-amber-500 text-slate-950"
-                : isDarkMode ? "bg-slate-700 border-slate-600 text-slate-100" : "bg-slate-300 border-slate-300 text-slate-900";
-              return (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={() => {
-                    setIsGrandFinal(key === "final");
-                    setIsSurvivalStage(key === "survival");
-                    setIsLastChanceQualifier(key === "lcq");
-                  }}
-                  title={
-                    key === "survival" ? "Its own fresh-points table in Standings, separate from Overall and Grand Final"
-                    : key === "lcq" ? "Its own fresh-points table in Standings, separate from Overall, Survival Stage and Grand Final"
-                    : key === "final" ? "Separated from the overall standings of the same league in Standings"
-                    : undefined
-                  }
-                  className={`px-3 py-1.5 rounded-lg text-[10px] font-mono font-bold uppercase tracking-wide transition-all cursor-pointer border ${
-                    isActive ? activeClass : isDarkMode ? "bg-slate-900 border-slate-800 text-slate-400 hover:text-white" : "bg-white border-slate-200 text-slate-600 hover:text-slate-900"
-                  }`}
-                >
-                  {label}
-                </button>
-              );
-            })}
-          </div>
-
-          {isGrandFinal && activeTournament?.leagueRankPointsEnabled && (
-            <button
-              type="button"
-              onClick={handleFillBonusFromLeaguePoints}
-              className="ml-auto px-3 py-1.5 bg-teal-500/10 hover:bg-teal-500/20 text-teal-400 rounded-lg border border-teal-500/20 text-[10px] font-bold font-mono transition-all cursor-pointer"
-              title={activeTournament.finalBonusMode === "rankTable"
-                ? "Fill in each team's Bonus Points from the Grand Final Bonus rank table, based on their overall regular season standing"
-                : "Fill in each team's Bonus Points from accumulated regular season League Rank Points"}
-            >
-              {activeTournament.finalBonusMode === "rankTable" ? "Fill Bonus Points from Rank Table" : "Fill Bonus Points from League Points"}
-            </button>
-          )}
-        </div>
+        {renderMatchStageBar()}
 
         {/* MANUAL ENTRY LAYOUT */}
         <div className="space-y-6 animate-fadeIn">
@@ -1973,9 +1993,9 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
                           <label className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider block">BONUS ADDED TO TARGET</label>
                           <input
                             type="number"
-                            value={activeTournament.smashRuleBonus ?? 10}
+                            value={activeTournament.smashRuleBonus ?? ""}
                             onChange={(e) => updateActiveTournament({ smashRuleBonus: Number(e.target.value) || 0 })}
-                            placeholder="e.g. 10"
+                            placeholder="e.g. 10 (blank = 0, used as soon as Grand Final games are entered)"
                             className={`w-full p-2 rounded-lg text-xs font-mono border focus:outline-none focus:ring-1 focus:ring-amber-500 ${isDarkMode ? "bg-slate-900 border-slate-800 text-slate-100" : "bg-white border-slate-300 text-slate-900"}`}
                           />
                         </div>

@@ -77,11 +77,20 @@ export const MatchSchedule: React.FC<MatchScheduleProps> = ({
   const [showFinished, setShowFinished] = useState(false);
   const [backfillTime, setBackfillTime] = useState("18:00");
   const [isBackfilling, setIsBackfilling] = useState(false);
+  const [showUnscheduledList, setShowUnscheduledList] = useState(false);
+
+  // Normalized for comparison only (trimmed + case-insensitive) - a league name typed/edited with
+  // slightly different casing or stray whitespace on one side (e.g. "PMSL SEA 2026 " vs "PMSL SEA
+  // 2026") used to silently fail the exact `===` match below, leaving a match stuck in this list
+  // forever with no visible reason why, even after a schedule genuinely exists for it.
+  const normalizeForMatch = (s?: string) => (s || "").trim().toLowerCase();
 
   // Match results with no corresponding schedule entry (same league + date match used everywhere
   // else this pairing matters) - candidates for the one-off backfill below.
   const matchesWithoutSchedule = useMemo(() => {
-    return matches.filter(m => !schedules.some(s => s.league === m.league && isoToGmt7Parts(s.scheduledAt)?.date === m.date));
+    return matches.filter(m => !schedules.some(s =>
+      normalizeForMatch(s.league) === normalizeForMatch(m.league) && isoToGmt7Parts(s.scheduledAt)?.date === m.date
+    ));
   }, [matches, schedules]);
 
   const handleBackfillFromMatches = async () => {
@@ -150,9 +159,14 @@ export const MatchSchedule: React.FC<MatchScheduleProps> = ({
           {actionPasswordVerified && matchesWithoutSchedule.length > 0 && (
             <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border ${isDarkMode ? "bg-slate-950 border-slate-800" : "bg-slate-100 border-slate-200"}`}>
               <History className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-              <span className="text-[9px] text-slate-500 uppercase font-bold whitespace-nowrap">
+              <button
+                type="button"
+                onClick={() => setShowUnscheduledList(v => !v)}
+                title="Lihat daftar match mana aja yang masih kehitung belum ada jadwal"
+                className="text-[9px] text-slate-500 uppercase font-bold whitespace-nowrap underline decoration-dotted cursor-pointer hover:text-amber-500"
+              >
                 {matchesWithoutSchedule.length} match belum ada jadwal
-              </span>
+              </button>
               <input
                 type="time"
                 value={backfillTime}
@@ -184,6 +198,31 @@ export const MatchSchedule: React.FC<MatchScheduleProps> = ({
           )}
         </div>
       </div>
+
+      {/* Which matches exactly are still counted as "no schedule" - without this, a mismatch (e.g.
+          a league name typed slightly differently between a match and its schedule entry) is
+          invisible: the count just never goes down no matter how many other entries get edited. */}
+      {showUnscheduledList && matchesWithoutSchedule.length > 0 && (
+        <div className={`p-4 rounded-2xl border space-y-2 ${isDarkMode ? "bg-slate-900/40 border-slate-800" : "bg-white border-slate-200"}`}>
+          <p className="text-[9px] text-slate-500 uppercase font-bold tracking-wider">
+            Match tanpa jadwal (dicocokkan lewat league + tanggal - kalau match ini sebenarnya sudah ada jadwalnya, cek league/tanggalnya persis sama atau enggak):
+          </p>
+          <div className="space-y-1 max-h-60 overflow-y-auto pr-1">
+            {matchesWithoutSchedule.map((m, idx) => (
+              <div
+                key={`${m.id || idx}`}
+                className={`flex flex-wrap items-center gap-x-2 gap-y-0.5 px-2.5 py-1.5 rounded-lg text-[10px] ${isDarkMode ? "bg-slate-950/50 text-slate-300" : "bg-slate-50 text-slate-700"}`}
+              >
+                <span className="font-bold">{m.matchCode || "(no title)"}</span>
+                <span className="text-slate-500">•</span>
+                <span>{m.league || "(no league)"}</span>
+                <span className="text-slate-500">•</span>
+                <span>{m.date || "(no date)"}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* SCHEDULE LIST */}
       {isLoading ? (

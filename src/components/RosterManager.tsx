@@ -790,7 +790,7 @@ export const RosterManager: React.FC<RosterManagerProps> = ({
           <RefreshCw className="w-8 h-8 text-amber-500 animate-spin" />
           <span className="text-xs text-slate-400">Fetching active roster data...</span>
         </div>
-      ) : roster.filter(p => (p.league || "PMSL SEA 2026") === selectedLeague).length === 0 ? (
+      ) : roster.filter(p => (p.league || "PMSL SEA 2026").trim().toLowerCase() === selectedLeague.trim().toLowerCase()).length === 0 ? (
         <div className={`text-center py-12 rounded-2xl text-xs text-slate-500 ${isDarkMode ? "bg-slate-900/50" : "bg-white border border-slate-200"}`}>
           No players registered yet for {selectedLeague}.
         </div>
@@ -798,7 +798,7 @@ export const RosterManager: React.FC<RosterManagerProps> = ({
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
           {Object.keys(
             roster
-              .filter(p => (p.league || "PMSL SEA 2026") === selectedLeague)
+              .filter(p => (p.league || "PMSL SEA 2026").trim().toLowerCase() === selectedLeague.trim().toLowerCase())
               .reduce((acc: Record<string, RosterPlayer[]>, p: RosterPlayer) => {
                 const t = (p.team || "Level Up Indonesia").toUpperCase().trim();
                 if (!acc[t]) acc[t] = [];
@@ -809,7 +809,7 @@ export const RosterManager: React.FC<RosterManagerProps> = ({
             .sort()
             .map((teamName) => {
               const teamPlayers = roster
-                .filter(p => (p.league || "PMSL SEA 2026") === selectedLeague)
+                .filter(p => (p.league || "PMSL SEA 2026").trim().toLowerCase() === selectedLeague.trim().toLowerCase())
                 .filter(
                   (p) => (p.team || "Level Up Indonesia").toUpperCase().trim() === teamName
                 )

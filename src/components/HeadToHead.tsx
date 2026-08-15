@@ -221,15 +221,27 @@ export const HeadToHead: React.FC<HeadToHeadProps> = ({ matches, isDarkMode, tou
     setTarget2("");
   }, [compType]);
 
-  // Set initial selections when data changes
+  // Set initial selections when data changes (e.g. switching the League filter). Each dropdown
+  // disables whatever the other one currently has selected so the user can never manually pick the
+  // same player/team twice - but resetting target1 and target2 independently here (each only
+  // checking "does my own id still exist") could still land both on the same id: e.g. target1
+  // becomes invalid after a league switch and falls back to activeData[0], while target2 was
+  // already validly sitting on that same activeData[0] entry. Resolved together instead, so a
+  // fallback pick always avoids whatever the other slot is keeping/getting.
   React.useEffect(() => {
-    if (activeData.length >= 2) {
-      if (!target1 || !activeData.some(p => p.id === target1)) {
-        setTarget1(activeData[0].id);
-      }
-      if (!target2 || !activeData.some(p => p.id === target2)) {
-        setTarget2(activeData[1].id);
-      }
+    if (activeData.length < 2) return;
+    const t1Valid = !!target1 && activeData.some(p => p.id === target1);
+    const t2Valid = !!target2 && activeData.some(p => p.id === target2);
+
+    if (t1Valid && t2Valid) return;
+
+    if (!t1Valid && !t2Valid) {
+      setTarget1(activeData[0].id);
+      setTarget2(activeData[1].id);
+    } else if (!t1Valid) {
+      setTarget1((activeData.find(p => p.id !== target2) || activeData[0]).id);
+    } else {
+      setTarget2((activeData.find(p => p.id !== target1) || activeData[1]).id);
     }
   }, [activeData]);
 

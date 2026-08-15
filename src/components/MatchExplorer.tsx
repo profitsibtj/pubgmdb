@@ -64,20 +64,31 @@ export const MatchExplorer: React.FC<MatchExplorerProps> = ({
     return ["ALL", ...combined];
   }, [matches]);
 
+  // Deduped case/whitespace-insensitively (keeping the first-seen casing to display) - a league
+  // name saved with a stray trailing space or different casing on some records used to show up as
+  // a second, near-identical entry in this dropdown, and picking either one would then miss the
+  // other's matches entirely (see the same normalization fix applied to Match Schedule's
+  // league-matching and Squad Roster's league filter).
   const leaguesList = useMemo(() => {
-    const list = matches.filter(m => !m.isDailyStats).map(m => m.league).filter(Boolean);
-    return ["ALL", ...Array.from(new Set(list))];
+    const seen = new Map<string, string>();
+    matches.filter(m => !m.isDailyStats).forEach(m => {
+      const trimmed = (m.league || "").trim();
+      if (!trimmed) return;
+      const key = trimmed.toLowerCase();
+      if (!seen.has(key)) seen.set(key, trimmed);
+    });
+    return ["ALL", ...Array.from(seen.values()).sort()];
   }, [matches]);
 
   const filteredMatches = useMemo(() => {
     return matches.filter((m) => {
       if (m.isDailyStats) return false;
-      const matchSearch = 
-        m.matchCode.toLowerCase().includes(searchTerm.toLowerCase()) || 
+      const matchSearch =
+        m.matchCode.toLowerCase().includes(searchTerm.toLowerCase()) ||
         m.teams.some(t => t.name.toLowerCase().includes(searchTerm.toLowerCase()));
-      
+
       const mapFilter = selectedMap === "ALL" || m.map === selectedMap;
-      const leagueFilter = selectedLeague === "ALL" || m.league === selectedLeague;
+      const leagueFilter = selectedLeague === "ALL" || (m.league || "").trim().toLowerCase() === selectedLeague.trim().toLowerCase();
 
       return matchSearch && mapFilter && leagueFilter;
     });

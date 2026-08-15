@@ -413,7 +413,15 @@ export const TournamentStandings: React.FC<TournamentStandingsProps> = ({ matche
   const smashRuleState = useMemo(() => {
     if (!currentPreset?.smashRuleEnabled || grandFinalGameKeys.length === 0) return null;
     const totalGamesPlayed = grandFinalGameKeys.length;
-    const lockAfterGame = Math.min(Math.max(1, Number(currentPreset.smashRuleLockAfterGame) || totalGamesPlayed), totalGamesPlayed);
+    // The lock-in point is whatever game number was actually configured (e.g. 12) - it must NOT be
+    // clamped down to however many games happen to be recorded so far, or the Match Point target
+    // would lock in (and keep re-locking, at a different total each time) after every single game
+    // as soon as any Grand Final result exists, instead of waiting for the real lock-in game to be
+    // reached. No config at all means Smash Rule can't determine a target yet.
+    const lockAfterGame = Number(currentPreset.smashRuleLockAfterGame) || null;
+    if (!lockAfterGame || lockAfterGame < 1) {
+      return { matchPointTarget: null, lockAfterGame: null, totalGamesPlayed, eligibleTeams: new Set<string>(), champion: null, championAtGameIndex: null };
+    }
     const bonus = Number(currentPreset.smashRuleBonus) || 0;
 
     const running: Record<string, number> = {};
@@ -600,7 +608,11 @@ export const TournamentStandings: React.FC<TournamentStandingsProps> = ({ matche
                   : isDarkMode ? "bg-slate-950/40 border-slate-850 text-slate-300" : "bg-slate-50 border-slate-200 text-slate-700"
               }`}>
                 <span className="font-black uppercase tracking-wider">
-                  {smashRuleState.matchPointTarget !== null ? `⚡ Match Point: ${smashRuleState.matchPointTarget}` : `Locks in after game ${smashRuleState.lockAfterGame}`}
+                  {smashRuleState.matchPointTarget !== null
+                    ? `⚡ Match Point: ${smashRuleState.matchPointTarget}`
+                    : smashRuleState.lockAfterGame !== null
+                    ? `Locks in after game ${smashRuleState.lockAfterGame}`
+                    : "Set 'Lock Target After Game #' in Tournament Settings to activate"}
                 </span>
                 {smashRuleState.champion ? (
                   <span className="font-bold">💥 SMASHED by <strong>{smashRuleState.champion}</strong> at Game {(smashRuleState.championAtGameIndex ?? 0) + 1}</span>

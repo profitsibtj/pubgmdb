@@ -20,6 +20,8 @@ const mapMatchFromDb = (row: any) => {
     liveLink: row.live_link || "",
     teams: row.teams || [],
     isGrandFinal: !!row.is_grand_final,
+    isSurvivalStage: !!row.is_survival_stage,
+    isLastChanceQualifier: !!row.is_last_chance_qualifier,
     customColumns: row.custom_columns || undefined,
     createdAt: row.created_at || "",
     updatedAt: row.updated_at || "",
@@ -39,6 +41,8 @@ const mapMatchToDb = (data: any) => {
     live_link: data.liveLink || null,
     teams: data.teams || null,
     is_grand_final: !!data.isGrandFinal,
+    is_survival_stage: !!data.isSurvivalStage,
+    is_last_chance_qualifier: !!data.isLastChanceQualifier,
     custom_columns: data.customColumns || null,
   };
 };
@@ -75,11 +79,15 @@ const mapScheduleFromDb = (row: any) => {
     id: String(row.id),
     league: row.league || "",
     matchCode: row.match_code || "",
+    gameNo: row.game_no || undefined,
     teams: row.teams || [],
     map: row.map || "",
     scheduledAt: row.scheduled_at || "",
     liveLink: row.live_link || "",
     isFinished: !!row.is_finished,
+    isGrandFinal: !!row.is_grand_final,
+    isSurvivalStage: !!row.is_survival_stage,
+    isLastChanceQualifier: !!row.is_last_chance_qualifier,
     createdAt: row.created_at || "",
   };
 };
@@ -88,11 +96,15 @@ const mapScheduleToDb = (data: any) => {
   return {
     league: data.league || null,
     match_code: data.matchCode || null,
+    game_no: data.gameNo ? String(data.gameNo) : null,
     teams: data.teams || null,
     map: data.map || null,
     scheduled_at: data.scheduledAt || null,
     live_link: data.liveLink || null,
     is_finished: !!data.isFinished,
+    is_grand_final: !!data.isGrandFinal,
+    is_survival_stage: !!data.isSurvivalStage,
+    is_last_chance_qualifier: !!data.isLastChanceQualifier,
   };
 };
 

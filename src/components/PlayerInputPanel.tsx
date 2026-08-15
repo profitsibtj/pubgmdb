@@ -635,9 +635,13 @@ export const PlayerInputPanel: React.FC<PlayerInputPanelProps> = ({
     setStatusMsg(null);
 
     try {
-      // 1. Group the flat list of players by their team value
+      // 1. Group the flat list of players by their team value - skipping any row nobody typed a
+      // name into. The invalidNames check above only rejects a NON-empty unregistered name, so a
+      // still-blank row (e.g. the single default row this form always starts a fresh period with,
+      // or an "Add Player" row added and then left empty) would otherwise get saved as a real
+      // player with an empty name, polluting Player Stats/Comparisons with a ghost entry.
       const playersByTeam: Record<string, DailyPlayer[]> = {};
-      flatPlayers.forEach(p => {
+      flatPlayers.filter(p => p.name.trim().length > 0).forEach(p => {
         const tName = canonicalizeTeam((p.team || "Independent").trim());
         if (!playersByTeam[tName]) {
           playersByTeam[tName] = [];
