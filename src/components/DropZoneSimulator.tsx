@@ -316,8 +316,13 @@ export const DropZoneSimulator: React.FC<DropZoneSimulatorProps> = ({
           {/* MAP CANVAS - intentionally always dark regardless of app theme (unlike every other
               card here): the official minimap art is dark/muted with transparent edges, so both
               this card's frame and the viewport inside it stay dark-styled even in light mode
-              instead of looking washed out / mismatched against a light frame. */}
-          <div className="p-4 rounded-2xl lg:col-span-3 transition-all bg-slate-900/50">
+              instead of looking washed out / mismatched against a light frame. Needs a fully
+              OPAQUE dark color to actually do that - the /50 opacity previously here let the
+              light-mode page background underneath bleed through, so the frame rendered as a
+              washed-out mid-gray in light mode instead of the intended solid dark navy (it
+              happened to look right in dark mode purely by coincidence, since a dark page behind
+              a translucent dark card still reads as dark either way). */}
+          <div className="p-4 rounded-2xl lg:col-span-3 transition-all bg-slate-900">
             <div className="flex items-center justify-between mb-2.5">
               <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
                 {selectedMap} Map

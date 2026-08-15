@@ -266,7 +266,13 @@ const formatMatchData = (match: any) => {
   return { ...match, teams: formattedTeams };
 };
 
-// Helper: Sort matches by Date and Round/Game descending
+// Helper: Sort matches by Date, then actual recorded Time, descending. Time (not the Match #/
+// gameNo) is the dominant tiebreaker within a day - an organizer reshuffling the schedule (e.g. a
+// tournament's last 2 games of Day 1 pushed into Day 2 as its first 2 games) leaves gameNo/
+// matchCode reflecting the OLD slot instead of when the game actually happened, so sorting by
+// those first showed games out of real chronological order. Falls back to the old totalGame/
+// matchCode/gameNo chain only when Time is missing or tied on both sides (e.g. legacy entries
+// saved before Time was required, or a genuine same-minute tie).
 const sortMatches = (matchesList: any[]) => {
   const getNumericValue = (val: any): number => {
     if (typeof val === 'number') return val;
@@ -275,10 +281,26 @@ const sortMatches = (matchesList: any[]) => {
     return numMatch ? parseInt(numMatch[0], 10) : 0;
   };
 
+  const getTimeMinutes = (val: any): number | null => {
+    if (typeof val !== "string" || !val.trim()) return null;
+    const parts = val.trim().split(":").map((n: string) => parseInt(n, 10));
+    if (parts.some((n: number) => Number.isNaN(n))) return null;
+    return parts[0] * 60 + (parts[1] || 0);
+  };
+
   return [...matchesList].sort((a, b) => {
     const dateA = a.date || "";
     const dateB = b.date || "";
     if (dateA !== dateB) return dateB.localeCompare(dateA);
+
+    const timeA = getTimeMinutes(a.time);
+    const timeB = getTimeMinutes(b.time);
+    if (timeA !== null && timeB !== null) {
+      if (timeA !== timeB) return timeB - timeA;
+    } else if (timeA !== null || timeB !== null) {
+      // A known time always outranks an unknown one, rather than sorting arbitrarily against it.
+      return timeA !== null ? -1 : 1;
+    }
 
     const totalGameA = getNumericValue(a.totalGame);
     const totalGameB = getNumericValue(b.totalGame);

@@ -896,11 +896,15 @@ export const TournamentStandings: React.FC<TournamentStandingsProps> = ({ matche
         </div>
 
         {/* Right column: Detailed Team Match-by-Match Logs & Statistics Breakdown.
-            Capped to a fixed height (instead of growing with however many matches a team has played)
-            so the Match History Log scrolls internally past that point rather than stretching the
-            whole page - roughly matches how tall the standings table gets for a full tournament roster. */}
+            Height tracks the left standings table's actual rendered height (CSS Grid stretches
+            both columns of the same row to match by default) instead of a fixed vh guess, so a
+            16-team lobby's shorter table and a 32-team lobby's taller one both get a right column
+            that reaches exactly as far down as the table does - never over- or under-shooting it.
+            The Match History Log below still scrolls internally (flex-1 min-h-0 overflow-y-auto)
+            for whichever height that ends up being, so a team with a long match history doesn't
+            grow the card past that point either. */}
         <div className="space-y-6">
-          <div className={`p-5 rounded-3xl h-full max-h-[75vh] transition-all flex flex-col justify-between border ${
+          <div className={`p-5 rounded-3xl h-full transition-all flex flex-col justify-between border ${
             isDarkMode ? "bg-slate-900/50 border-slate-850" : "bg-white border-slate-200 shadow-sm"
           }`}>
             <div className="flex flex-col flex-1 min-h-0">
