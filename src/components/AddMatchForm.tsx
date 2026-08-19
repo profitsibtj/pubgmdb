@@ -398,8 +398,14 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
     setIsGrandFinal(!!matchPrefill.isGrandFinal);
     setIsSurvivalStage(!!matchPrefill.isSurvivalStage);
     setIsLastChanceQualifier(!!matchPrefill.isLastChanceQualifier);
+    // Normalized league comparison (trim + case-insensitive) - an exact `===` here could undercount
+    // how many games this day already has (whenever the schedule entry's league string differed by
+    // stray whitespace/casing from the matches already saved for it), suggesting a Game/Match No
+    // that collides with an already-used one instead of the real next number. Two real matches
+    // sharing the same (date, Game/Match No) then silently collapse into one "game" everywhere that
+    // counts distinct Grand Final games (e.g. Smash Rule's total games played).
     const existingGamesForDay = matchPrefill.league && matchPrefill.date
-      ? matches.filter(m => !m.isDailyStats && m.league === matchPrefill.league && m.date === matchPrefill.date).length
+      ? matches.filter(m => !m.isDailyStats && (m.league || "").trim().toLowerCase() === matchPrefill.league!.trim().toLowerCase() && m.date === matchPrefill.date).length
       : 0;
     const nextGameNo = matchPrefill.gameNo || String(existingGamesForDay + 1);
     setMeta(prev => ({
