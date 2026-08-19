@@ -760,13 +760,9 @@ export default function App() {
     }
   };
 
-  // Save/Edit Matches. `silent` skips the toast and the tab-switch-to-Match-Explorer side effect -
-  // used when saving programmatically from somewhere other than the Add/Edit Match form itself
-  // (e.g. Tournament Standings' "Renumber by Time" fix, which calls this once per match in a loop
-  // and would otherwise yank the admin's view over to Match Explorer after every single one).
-  const handleSaveMatch = async (matchData: Match, options?: { silent?: boolean }) => {
+  // Save/Edit Matches
+  const handleSaveMatch = async (matchData: Match) => {
     const isEdit = !!matchData.id;
-    const silent = !!options?.silent;
     const successMessage = isEdit ? "Successfully updated the match record." : "Successfully added a new match to the database.";
 
     const saveViaClientDb = async () => {
@@ -790,7 +786,7 @@ export default function App() {
     const finalizeSuccess = () => {
       setEditingMatch(null);
       fetchMatches();
-      if (!silent) setActiveTab("matches");
+      setActiveTab("matches");
       if (!isEdit) {
         // Normalized league comparison (trim + case-insensitive) - an exact `===` here used to mean
         // a match result entered directly (not via the "Enter Match Result" button, so
@@ -829,7 +825,7 @@ export default function App() {
     try {
       if (clientDb.getIsStatic()) {
         await saveViaClientDb();
-        if (!silent) showToast(successMessage, "success");
+        showToast(successMessage, "success");
         finalizeSuccess();
         return;
       }
@@ -851,14 +847,14 @@ export default function App() {
         throw new Error(errData.error || "Failed to save the match.");
       }
 
-      if (!silent) showToast(successMessage, "success");
+      showToast(successMessage, "success");
       finalizeSuccess();
     } catch (err: any) {
       // Failures are re-thrown after this so callers (AddMatchForm, PlayerInputPanel) know the
       // save genuinely failed instead of showing a false "success" message of their own.
       try {
         await saveViaClientDb();
-        if (!silent) showToast(`${successMessage} (Static fallback).`, "success");
+        showToast(`${successMessage} (Static fallback).`, "success");
         finalizeSuccess();
       } catch (dbErr: any) {
         showToast("Error saving match: " + err.message, "error");
@@ -1436,7 +1432,7 @@ export default function App() {
 
         {/* Tournament Standings tab */}
         {activeTab === "tournamentStandings" && (
-          <TournamentStandings matches={matches} isDarkMode={isDarkMode} tournaments={tournaments} actionPasswordVerified={actionPasswordVerified} onSaveMatch={(m) => handleSaveMatch(m, { silent: true })} />
+          <TournamentStandings matches={matches} isDarkMode={isDarkMode} tournaments={tournaments} />
         )}
 
         {/* Player Stats Dashboard tab */}

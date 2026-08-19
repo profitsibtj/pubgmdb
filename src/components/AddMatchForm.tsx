@@ -181,6 +181,10 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
     // Chance Qualifier instead - e.g. top 6 of 16 go direct to Grand Final, the rest to LCQ). Only
     // used to highlight the advancing teams in Standings; undefined just skips that highlight.
     survivalStageAdvanceCount?: number;
+    // Which stage(s) that Survival Stage count actually feeds into - lets Standings name the real
+    // destination ("advance to Grand Final") instead of a vague "advance to the next stage" when
+    // the admin hasn't said. Undefined stays vague, matching every preset saved before this existed.
+    survivalStageAdvanceDestination?: "final" | "lcq" | "both";
     // Same idea for the Last Chance Qualifier - how many top teams advance into Grand Final from there.
     lastChanceQualifierAdvanceCount?: number;
     // Each of these three later stages gets its own free-form team list (one name per line, no
@@ -1278,28 +1282,33 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
         throw new Error("All team names must be filled in.");
       }
 
-      // Catches the same (league, date, Game/Match No, stage) combo being saved twice for two
-      // genuinely different matches - the most common real cause being a postponed match whose
-      // Date got moved to the next day without also updating its Game/Match No, so it collides
-      // with whatever that new day already numbered. Two matches silently sharing one slot get
-      // merged into a single "game" everywhere that counts distinct Grand Final games (e.g. Smash
-      // Rule's replay), undercounting the total and scrambling its game-by-game math - so this is
-      // caught here, at save time, instead of surfacing confusingly much later in Standings.
+      // Catches the same (league, Match Code, Game/Match No, stage) combo being saved twice for two
+      // genuinely different matches - a real data-entry mistake within the same session/day label.
+      // Deliberately keyed on Match Code, NOT Date: Match Code is a game's original session/day
+      // label (e.g. "D7") and stays put even when a match gets postponed to a different calendar
+      // Date - only Date/Time change to reflect when it actually happened. A postponed match
+      // keeping its original Game/Match No can then legitimately land on the same calendar Date as
+      // that new day's own native game with the same number (two different real games sharing a
+      // Date+gameNo pair by coincidence) - that's expected, not an error, so Date is not part of
+      // this check. Two matches silently sharing one true (matchCode, gameNo) slot get merged into
+      // a single "game" everywhere that counts distinct Grand Final games (e.g. Smash Rule's
+      // replay), undercounting the total and scrambling its game-by-game math - so this is caught
+      // here, at save time, instead of surfacing confusingly much later in Standings.
       const trimmedGameNo = meta.gameNo.trim();
-      const trimmedDate = meta.date;
+      const trimmedMatchCode = meta.matchCode.trim();
       const trimmedLeague = meta.league.trim();
       const collision = matches.find(m =>
         m.id !== editingMatch?.id &&
         !m.isDailyStats &&
         (m.league || "").trim().toLowerCase() === trimmedLeague.toLowerCase() &&
-        m.date === trimmedDate &&
+        (m.matchCode || "").trim().toLowerCase() === trimmedMatchCode.toLowerCase() &&
         (m.gameNo || "").trim() === trimmedGameNo &&
         !!m.isGrandFinal === isGrandFinal &&
         !!m.isSurvivalStage === isSurvivalStage &&
         !!m.isLastChanceQualifier === isLastChanceQualifier
       );
       if (collision) {
-        throw new Error(`Match "${collision.matchCode}" (${collision.time || "no time set"}) already uses Date ${trimmedDate} + Game/Match No ${trimmedGameNo || "(empty)"} for this league/stage. Give this match a different Game/Match No - a common cause is postponing a match to a new Date without also updating its Game/Match No to fit that day's numbering.`);
+        throw new Error(`Match "${collision.matchCode}" (${collision.date}, ${collision.time || "no time set"}) already uses Game/Match No ${trimmedGameNo || "(empty)"} for this league/stage. Give this match a different Game/Match No.`);
       }
 
       // Auto-calculate final values for each team
@@ -1812,6 +1821,29 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
                           className={`w-full max-w-[140px] p-2 rounded-lg text-xs font-mono border focus:outline-none focus:ring-1 focus:ring-teal-500 ${isDarkMode ? "bg-slate-900 border-slate-800 text-slate-100" : "bg-white border-slate-300 text-slate-900"}`}
                         />
                         <p className="text-[9px] text-slate-500 mt-2 leading-relaxed">How many top teams advance out of Survival Stage (to Grand Final and/or Last Chance Qualifier, however this tournament splits it) - varies per tournament. Used in Standings to highlight who's advancing once matches there are marked "Survival Stage" below. Leave blank to skip the highlight.</p>
+
+                        <label className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider block mt-3 mb-1.5">Advances To (for Standings' wording)</label>
+                        <div className="flex flex-wrap gap-1.5">
+                          {([
+                            ["final", "Grand Final"],
+                            ["lcq", "Last Chance Qualifier"],
+                            ["both", "Both (split)"]
+                          ] as const).map(([value, label]) => (
+                            <button
+                              key={value}
+                              type="button"
+                              onClick={() => updateActiveTournament({ survivalStageAdvanceDestination: value })}
+                              className={`px-2.5 py-1 rounded-lg text-[10px] font-mono font-bold uppercase tracking-wide transition-all cursor-pointer border ${
+                                activeTournament?.survivalStageAdvanceDestination === value
+                                  ? "bg-teal-500 border-teal-500 text-slate-950"
+                                  : isDarkMode ? "bg-slate-900 border-slate-800 text-slate-400 hover:text-white" : "bg-white border-slate-200 text-slate-600 hover:text-slate-900"
+                              }`}
+                            >
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+                        <p className="text-[9px] text-slate-500 mt-1.5 leading-relaxed">Which stage(s) these teams actually go to - Standings names it directly ("advance to Grand Final") once this is set, instead of a vague "advance to the next stage."</p>
                         {!!activeTournament?.survivalStageAdvanceCount && (
                           <div className="flex flex-wrap items-center gap-2 mt-3 pt-3 border-t border-slate-850/60">
                             <span className="text-[9px] text-slate-500 font-mono uppercase">Carry Top {activeTournament.survivalStageAdvanceCount} (shuffled) →</span>

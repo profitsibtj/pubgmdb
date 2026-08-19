@@ -9,14 +9,9 @@ interface TournamentStandingsProps {
   matches: Match[];
   isDarkMode: boolean;
   tournaments?: any[];
-  actionPasswordVerified?: boolean;
-  // Lets the "renumber by Time" fix below actually save its corrected Game/Match No values -
-  // reuses whatever save path the rest of the app already has (App.tsx's handleSaveMatch), so a
-  // renumbered match goes through the exact same duplicate-slot validation as a manual edit would.
-  onSaveMatch?: (match: Match) => Promise<void>;
 }
 
-export const TournamentStandings: React.FC<TournamentStandingsProps> = ({ matches, isDarkMode, tournaments, actionPasswordVerified, onSaveMatch }) => {
+export const TournamentStandings: React.FC<TournamentStandingsProps> = ({ matches, isDarkMode, tournaments }) => {
   const [selectedTournament, setSelectedTournament] = useState<string>("");
   const [selectedMapFilter, setSelectedMapFilter] = useState<string>("ALL");
   const [selectedWeekFilter, setSelectedWeekFilter] = useState<string>("ALL");
@@ -394,90 +389,34 @@ export const TournamentStandings: React.FC<TournamentStandingsProps> = ({ matche
     return matches.filter(m => !m.isDailyStats && m.league === selectedTournament && m.isGrandFinal);
   }, [matches, selectedTournament]);
 
-  // Distinct Grand Final games (one date+gameNo pair can span several teams' Team entries), in play
-  // order - the "Nth game" Smash Rule's lock-in point and forward eligibility walk are counted against.
+  // Distinct Grand Final games (one matchCode+gameNo pair can span several teams' Team entries), in
+  // actual play order (Date then Time) - the "Nth game" Smash Rule's lock-in point and forward
+  // eligibility walk are counted against.
+  //
+  // Identity is matchCode+gameNo, NOT date+gameNo: matchCode is the game's original session/day
+  // label (e.g. "D7"), which stays put even when a match gets postponed to a different calendar
+  // Date - only Date/Time change to reflect when it was actually played. A postponed match keeping
+  // its original Game/Match No (e.g. "D7"'s Game 5) can then legitimately land on the exact same
+  // calendar Date as that new day's own native Game 5 (e.g. "D8"'s own Game 5) - two entirely
+  // different real games that happen to share a Date+gameNo pair. Deduping on date+gameNo used to
+  // wrongly merge those two into "one game"; matchCode+gameNo tells them apart correctly.
   const grandFinalGameKeys = useMemo(() => {
-    const seen = new Map<string, { date: string; gameNo: string }>();
+    const seen = new Map<string, { matchCode: string; gameNo: string; date: string; time: string }>();
     grandFinalMatchesAll.forEach(m => {
-      const key = `${m.date}__${m.gameNo || ""}`;
-      if (!seen.has(key)) seen.set(key, { date: m.date, gameNo: m.gameNo || "" });
+      const key = `${m.matchCode || ""}__${m.gameNo || ""}`;
+      if (!seen.has(key)) seen.set(key, { matchCode: m.matchCode || "", gameNo: m.gameNo || "", date: m.date, time: m.time || "" });
     });
+    const timeToMinutes = (t: string): number => {
+      if (!t) return Number.MAX_SAFE_INTEGER;
+      const parts = t.split(":").map(n => parseInt(n, 10));
+      if (parts.some(n => Number.isNaN(n))) return Number.MAX_SAFE_INTEGER;
+      return parts[0] * 60 + (parts[1] || 0);
+    };
     return Array.from(seen.values()).sort((a, b) => {
       if (a.date !== b.date) return a.date.localeCompare(b.date);
-      const gA = parseInt(a.gameNo, 10);
-      const gB = parseInt(b.gameNo, 10);
-      if (!isNaN(gA) && !isNaN(gB) && gA !== gB) return gA - gB;
-      return a.gameNo.localeCompare(b.gameNo);
+      return timeToMinutes(a.time) - timeToMinutes(b.time);
     });
   }, [grandFinalMatchesAll]);
-
-  // Grand Final games where more than one saved match row shares the same (Date, Game/Match No) -
-  // grandFinalGameKeys/smashRuleState treat all of them as a single "game" (their teams' points get
-  // summed together as if only one game happened), which both undercounts the total distinct games
-  // and scrambles Smash Rule's game-by-game replay. Surfaced here so an admin can find and fix the
-  // specific duplicate (by editing one entry's Game/Match No) instead of just seeing a mysteriously
-  // low "games recorded" count with no way to tell which rows are actually colliding.
-  const duplicateGrandFinalSlots = useMemo(() => {
-    const byKey = new Map<string, Match[]>();
-    grandFinalMatchesAll.forEach(m => {
-      const key = `${m.date}__${m.gameNo || ""}`;
-      if (!byKey.has(key)) byKey.set(key, []);
-      byKey.get(key)!.push(m);
-    });
-    return Array.from(byKey.values())
-      .filter(ms => ms.length > 1)
-      .map(ms => ({
-        date: ms[0].date,
-        gameNo: ms[0].gameNo || "(kosong)",
-        entries: ms.map(m => ({ id: m.id, matchCode: m.matchCode, time: m.time || "-" }))
-      }));
-  }, [grandFinalMatchesAll]);
-
-  const [renumberingDate, setRenumberingDate] = useState<string | null>(null);
-  const [renumberMsg, setRenumberMsg] = useState<string>("");
-
-  // Fixes a duplicate slot properly instead of an admin having to guess a new Game/Match No by
-  // hand (which risks landing on an arbitrary/non-sequential number, e.g. "19" for a day that only
-  // ever had ~6 games) - every Grand Final match on that one date gets renumbered 1..N in actual
-  // play order (by Time), the same order Smash Rule's own game-by-game replay already trusts. A
-  // postponed match slots in wherever its real Time puts it, and every other match on that date
-  // shifts to make room, instead of just tacking the postponed one onto the end with a fresh number.
-  const handleRenumberDate = async (date: string) => {
-    if (!onSaveMatch) return;
-    setRenumberingDate(date);
-    setRenumberMsg("");
-    try {
-      const dayMatches = grandFinalMatchesAll.filter(m => m.date === date);
-      const timeToMinutes = (t?: string): number => {
-        if (!t) return Number.MAX_SAFE_INTEGER;
-        const parts = t.split(":").map(n => parseInt(n, 10));
-        if (parts.some(n => Number.isNaN(n))) return Number.MAX_SAFE_INTEGER;
-        return parts[0] * 60 + (parts[1] || 0);
-      };
-      const sorted = [...dayMatches].sort((a, b) => {
-        const diff = timeToMinutes(a.time) - timeToMinutes(b.time);
-        if (diff !== 0) return diff;
-        // Untimed/tied entries keep their existing relative order rather than shuffling randomly.
-        return (a.gameNo || "").localeCompare(b.gameNo || "", undefined, { numeric: true });
-      });
-
-      let changed = 0;
-      for (let i = 0; i < sorted.length; i++) {
-        const newGameNo = String(i + 1);
-        const m = sorted[i];
-        if ((m.gameNo || "") === newGameNo) continue;
-        await onSaveMatch({ ...m, gameNo: newGameNo, totalGame: newGameNo });
-        changed++;
-      }
-      setRenumberMsg(changed > 0
-        ? `${date}: ${sorted.length} match direnumber jadi Game 1-${sorted.length} sesuai urutan Time.`
-        : `${date} sudah berurutan, tidak ada yang perlu diubah.`);
-    } catch (err: any) {
-      setRenumberMsg(`Gagal renumber ${date}: ${err.message || err}`);
-    } finally {
-      setRenumberingDate(null);
-    }
-  };
 
   // Replays Grand Final games in order to find the Match Point target (leader's total after the
   // configured lock-in game, plus the configured bonus), which teams have since reached it, and -
@@ -504,7 +443,7 @@ export const TournamentStandings: React.FC<TournamentStandingsProps> = ({ matche
     const eligibleTeams = new Set<string>();
 
     grandFinalGameKeys.forEach((key, idx) => {
-      const gameMatches = grandFinalMatchesAll.filter(m => m.date === key.date && (m.gameNo || "") === key.gameNo);
+      const gameMatches = grandFinalMatchesAll.filter(m => (m.matchCode || "") === key.matchCode && (m.gameNo || "") === key.gameNo);
       const wwcdTeamsThisGame: string[] = [];
       gameMatches.forEach(m => {
         m.teams.forEach(t => {
@@ -701,40 +640,6 @@ export const TournamentStandings: React.FC<TournamentStandingsProps> = ({ matche
               </div>
             )}
 
-            {/* Data-integrity warning - independent of Smash Rule being enabled, since this is a
-                Match/Game No data problem, not a rule-config one. */}
-            {viewMode === "final" && duplicateGrandFinalSlots.length > 0 && (
-              <div className="mb-4 p-3 rounded-xl border text-[11px] font-mono space-y-1.5 bg-red-500/10 border-red-500/30 text-red-400">
-                <span className="font-black uppercase tracking-wider block">
-                  ⚠ {duplicateGrandFinalSlots.length} Date + Game/Match No kembar terdeteksi
-                </span>
-                <p className="normal-case font-sans text-red-400/90">
-                  Match-match ini kehitung sebagai 1 game yang sama (poinnya ke-gabung jadi satu) sampai Game/Match No-nya dibikin unik lagi. Jangan pilih angka baru sembarangan (misal lompat ke "19" padahal cuma ada 6 match sehari) - klik "Renumber by Time" biar semua match di tanggal itu diurut ulang 1..N sesuai jam main sebenarnya:
-                </p>
-                <ul className="space-y-2">
-                  {duplicateGrandFinalSlots.map((slot, i) => (
-                    <li key={i} className="flex flex-wrap items-center gap-2">
-                      <span>
-                        <strong>{slot.date} · Game {slot.gameNo}:</strong>{" "}
-                        {slot.entries.map(e => `${e.matchCode} (${e.time})`).join("  vs.  ")}
-                      </span>
-                      {actionPasswordVerified && onSaveMatch && (
-                        <button
-                          type="button"
-                          onClick={() => handleRenumberDate(slot.date)}
-                          disabled={renumberingDate === slot.date}
-                          className="px-2.5 py-1 bg-red-500/10 hover:bg-red-500/20 disabled:opacity-50 disabled:cursor-not-allowed text-red-300 rounded-lg text-[10px] font-bold uppercase cursor-pointer border border-red-500/30 transition-all shrink-0"
-                        >
-                          {renumberingDate === slot.date ? "Renumbering..." : "Renumber by Time"}
-                        </button>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-                {renumberMsg && <p className="normal-case font-sans text-amber-300 pt-1 border-t border-red-500/20">{renumberMsg}</p>}
-              </div>
-            )}
-
             {/* Survival Stage status - fresh points, separate from Overall/Grand Final, with the
                 top N (configured per tournament, since it varies) highlighted as advancing below. */}
             {viewMode === "survival" && (
@@ -742,8 +647,12 @@ export const TournamentStandings: React.FC<TournamentStandingsProps> = ({ matche
                 isDarkMode ? "bg-slate-950/40 border-slate-850 text-slate-300" : "bg-slate-50 border-slate-200 text-slate-700"
               }`}>
                 {currentPreset?.survivalStageAdvanceCount
-                  ? <span>Top <strong className="text-teal-400">{currentPreset.survivalStageAdvanceCount}</strong> teams advance to Grand Final - fresh points for this stage, not carried over from Overall.</span>
-                  : <span className="text-slate-500">Fresh points for this stage, not carried over from Overall. Set "Teams Advancing to Grand Final" in this tournament's settings to highlight who's advancing.</span>}
+                  ? <span>Top <strong className="text-teal-400">{currentPreset.survivalStageAdvanceCount}</strong> teams advance to{" "}
+                      {currentPreset.survivalStageAdvanceDestination === "final" ? "Grand Final"
+                        : currentPreset.survivalStageAdvanceDestination === "lcq" ? "the Last Chance Qualifier"
+                        : currentPreset.survivalStageAdvanceDestination === "both" ? "Grand Final and/or the Last Chance Qualifier"
+                        : "the next stage"}.</span>
+                  : <span className="text-slate-500">Set "Survival Stage: Teams Advancing" in this tournament's settings to highlight who's advancing.</span>}
               </div>
             )}
 
@@ -753,8 +662,8 @@ export const TournamentStandings: React.FC<TournamentStandingsProps> = ({ matche
                 isDarkMode ? "bg-slate-950/40 border-slate-850 text-slate-300" : "bg-slate-50 border-slate-200 text-slate-700"
               }`}>
                 {currentPreset?.lastChanceQualifierAdvanceCount
-                  ? <span>Top <strong className="text-indigo-400">{currentPreset.lastChanceQualifierAdvanceCount}</strong> teams advance into the main event - fresh points for this stage, not carried over from Overall.</span>
-                  : <span className="text-slate-500">Fresh points for this stage, not carried over from Overall. Set "Teams Advancing" in this tournament's settings to highlight who's advancing.</span>}
+                  ? <span>Top <strong className="text-indigo-400">{currentPreset.lastChanceQualifierAdvanceCount}</strong> teams advance to Grand Final.</span>
+                  : <span className="text-slate-500">Set "Last Chance Qualifier: Teams Advancing" in this tournament's settings to highlight who's advancing.</span>}
               </div>
             )}
 
