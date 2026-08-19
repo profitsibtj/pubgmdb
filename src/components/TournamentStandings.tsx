@@ -406,6 +406,28 @@ export const TournamentStandings: React.FC<TournamentStandingsProps> = ({ matche
     });
   }, [grandFinalMatchesAll]);
 
+  // Grand Final games where more than one saved match row shares the same (Date, Game/Match No) -
+  // grandFinalGameKeys/smashRuleState treat all of them as a single "game" (their teams' points get
+  // summed together as if only one game happened), which both undercounts the total distinct games
+  // and scrambles Smash Rule's game-by-game replay. Surfaced here so an admin can find and fix the
+  // specific duplicate (by editing one entry's Game/Match No) instead of just seeing a mysteriously
+  // low "games recorded" count with no way to tell which rows are actually colliding.
+  const duplicateGrandFinalSlots = useMemo(() => {
+    const byKey = new Map<string, Match[]>();
+    grandFinalMatchesAll.forEach(m => {
+      const key = `${m.date}__${m.gameNo || ""}`;
+      if (!byKey.has(key)) byKey.set(key, []);
+      byKey.get(key)!.push(m);
+    });
+    return Array.from(byKey.values())
+      .filter(ms => ms.length > 1)
+      .map(ms => ({
+        date: ms[0].date,
+        gameNo: ms[0].gameNo || "(kosong)",
+        entries: ms.map(m => ({ id: m.id, matchCode: m.matchCode, time: m.time || "-" }))
+      }));
+  }, [grandFinalMatchesAll]);
+
   // Replays Grand Final games in order to find the Match Point target (leader's total after the
   // configured lock-in game, plus the configured bonus), which teams have since reached it, and -
   // walking forward from there - the first eligible team to also grab a WWCD (the moment Smash Rule
@@ -625,6 +647,27 @@ export const TournamentStandings: React.FC<TournamentStandingsProps> = ({ matche
                 ) : (
                   <span className="text-slate-500">{smashRuleState.totalGamesPlayed} game{smashRuleState.totalGamesPlayed === 1 ? "" : "s"} recorded so far.</span>
                 )}
+              </div>
+            )}
+
+            {/* Data-integrity warning - independent of Smash Rule being enabled, since this is a
+                Match/Game No data problem, not a rule-config one. */}
+            {viewMode === "final" && duplicateGrandFinalSlots.length > 0 && (
+              <div className="mb-4 p-3 rounded-xl border text-[11px] font-mono space-y-1.5 bg-red-500/10 border-red-500/30 text-red-400">
+                <span className="font-black uppercase tracking-wider block">
+                  ⚠ {duplicateGrandFinalSlots.length} Date + Game/Match No kembar terdeteksi
+                </span>
+                <p className="normal-case font-sans text-red-400/90">
+                  Match-match ini kehitung sebagai 1 game yang sama (poinnya ke-gabung jadi satu) sampai Game/Match No salah satunya diedit jadi unik lewat Match Explorer:
+                </p>
+                <ul className="space-y-1">
+                  {duplicateGrandFinalSlots.map((slot, i) => (
+                    <li key={i}>
+                      <strong>{slot.date} · Game {slot.gameNo}:</strong>{" "}
+                      {slot.entries.map(e => `${e.matchCode} (${e.time})`).join("  vs.  ")}
+                    </li>
+                  ))}
+                </ul>
               </div>
             )}
 

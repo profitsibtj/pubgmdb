@@ -94,6 +94,14 @@ export interface DailyStatsEntry {
   date: string; // a week label, "Sepanjang Turnamen", or a calendar date, depending on granularity
   teams: Team[];
   customColumns?: CustomColumn[];
+  // Which stage this day/week/tournament-wide record's stats were tracked for - same three flags
+  // as Match, so Player Stats can filter/aggregate them separately (e.g. "Grand Final MVP" vs the
+  // regular Group Stage numbers) instead of always lumping every period together. All false/unset
+  // means Group Stage - the default and by far the most common case, so it's left unmarked rather
+  // than requiring every existing and new Group Stage record to explicitly say so.
+  isGrandFinal?: boolean;
+  isSurvivalStage?: boolean;
+  isLastChanceQualifier?: boolean;
   createdAt?: string;
   updatedAt?: string;
 }

@@ -58,6 +58,9 @@ const mapDailyStatsFromDb = (row: any) => {
     date: row.date || "",
     teams: row.teams || [],
     customColumns: row.custom_columns || undefined,
+    isGrandFinal: !!row.is_grand_final,
+    isSurvivalStage: !!row.is_survival_stage,
+    isLastChanceQualifier: !!row.is_last_chance_qualifier,
     createdAt: row.created_at || "",
     updatedAt: row.updated_at || "",
   };
@@ -70,6 +73,9 @@ const mapDailyStatsToDb = (data: any) => {
     date: data.date || null,
     teams: data.teams || null,
     custom_columns: data.customColumns || null,
+    is_grand_final: !!data.isGrandFinal,
+    is_survival_stage: !!data.isSurvivalStage,
+    is_last_chance_qualifier: !!data.isLastChanceQualifier,
   };
 };
 

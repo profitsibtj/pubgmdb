@@ -491,9 +491,9 @@ export default function App() {
 
   // Deep-link target for the Player Input Panel, set when "Edit" is clicked on an already-posted
   // player stats record from the Player Stats tab.
-  const [playerInputTarget, setPlayerInputTarget] = useState<{ league: string; date?: string; week?: string; tournamentWide?: boolean } | null>(null);
+  const [playerInputTarget, setPlayerInputTarget] = useState<{ league: string; date?: string; week?: string; tournamentWide?: boolean; isGrandFinal?: boolean; isSurvivalStage?: boolean; isLastChanceQualifier?: boolean } | null>(null);
 
-  const handleEditPlayerRecord = (league: string, period: { date?: string; week?: string; tournamentWide?: boolean }) => {
+  const handleEditPlayerRecord = (league: string, period: { date?: string; week?: string; tournamentWide?: boolean; isGrandFinal?: boolean; isSurvivalStage?: boolean; isLastChanceQualifier?: boolean }) => {
     setPlayerInputTarget({ league, ...period });
     setAdminSubTab("playerInput");
     setActiveTab("admin");

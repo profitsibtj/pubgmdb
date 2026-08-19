@@ -20,7 +20,7 @@ interface PlayerInputPanelProps {
   onUpdateTournaments?: (updatedTournaments: any[]) => void;
   // Lets other tabs (e.g. Player Stats "Edit") deep-link straight into an already-posted
   // league+period record here instead of the admin having to reselect it manually.
-  presetSelection?: { league: string; date?: string; week?: string; tournamentWide?: boolean } | null;
+  presetSelection?: { league: string; date?: string; week?: string; tournamentWide?: boolean; isGrandFinal?: boolean; isSurvivalStage?: boolean; isLastChanceQualifier?: boolean } | null;
   onConsumedPresetSelection?: () => void;
 }
 
@@ -238,24 +238,41 @@ export const PlayerInputPanel: React.FC<PlayerInputPanelProps> = ({
     if (fallback) setStatsMode(fallback);
   }, [selectedLeague, dayStatsEnabled, weekStatsEnabled, tournamentStatsEnabled, statsMode]);
 
-  // 2. Extract existing dates for the selected tournament
+  // Which stage this day/week/tournament-wide record's stats belong to - same idea as Add Match
+  // Data's "Match Stage" bar, so Player Stats can later show e.g. Grand Final-only MVP separately
+  // from the regular Group Stage numbers instead of always lumping every period together. Defaults
+  // to Group Stage (all three false), matching every record saved before this existed.
+  const [isGrandFinal, setIsGrandFinal] = useState(false);
+  const [isSurvivalStage, setIsSurvivalStage] = useState(false);
+  const [isLastChanceQualifier, setIsLastChanceQualifier] = useState(false);
+
+  // 2. Extract existing dates for the selected tournament, scoped to whichever stage is picked
+  // above - a date that only had Group Stage games played on it shouldn't be offered while entering
+  // Grand Final stats, and vice versa.
+  const matchStageFilter = React.useCallback((m: Match) => {
+    if (isGrandFinal) return !!m.isGrandFinal;
+    if (isSurvivalStage) return !!m.isSurvivalStage;
+    if (isLastChanceQualifier) return !!m.isLastChanceQualifier;
+    return !m.isGrandFinal && !m.isSurvivalStage && !m.isLastChanceQualifier;
+  }, [isGrandFinal, isSurvivalStage, isLastChanceQualifier]);
+
   const availableDates = useMemo(() => {
     if (!selectedLeague) return [];
     const dates = new Set<string>();
     matches.forEach(m => {
-      if (m.league && m.league.toLowerCase().trim() === selectedLeague.toLowerCase().trim() && m.date) {
+      if (m.league && m.league.toLowerCase().trim() === selectedLeague.toLowerCase().trim() && m.date && matchStageFilter(m)) {
         dates.add(m.date);
       }
     });
     return Array.from(dates).sort((a, b) => b.localeCompare(a)); // Descending
-  }, [matches, selectedLeague]);
+  }, [matches, selectedLeague, matchStageFilter]);
 
   // Extract existing weeks for the selected tournament (only present when matchCodes encode a week)
   const availableWeeks = useMemo(() => {
     if (!selectedLeague) return [];
     const weeks = new Set<string>();
     matches.forEach(m => {
-      if (m.league && m.league.toLowerCase().trim() === selectedLeague.toLowerCase().trim()) {
+      if (m.league && m.league.toLowerCase().trim() === selectedLeague.toLowerCase().trim() && matchStageFilter(m)) {
         const w = getMatchWeekLabel(m);
         if (w) weeks.add(w);
       }
@@ -265,7 +282,7 @@ export const PlayerInputPanel: React.FC<PlayerInputPanelProps> = ({
       const nb = parseInt(b.replace(/\D/g, ""), 10);
       return nb - na; // Descending, matching availableDates' most-recent-first order
     });
-  }, [matches, selectedLeague]);
+  }, [matches, selectedLeague, matchStageFilter]);
 
   // 3. Date/Week Selection state
   const [selectedDate, setSelectedDate] = useState<string>("");
@@ -281,6 +298,12 @@ export const PlayerInputPanel: React.FC<PlayerInputPanelProps> = ({
     if (!presetSelection) return;
     pendingPresetPeriodRef.current = { date: presetSelection.date, week: presetSelection.week };
     setSelectedLeague(presetSelection.league);
+    // Carries the stage that record was tagged under (Group/Survival/LCQ/Grand Final) - without
+    // this, deep-linking in from Player Stats would land back on the Group Stage default and show
+    // an empty grid instead of the record actually being edited.
+    setIsGrandFinal(!!presetSelection.isGrandFinal);
+    setIsSurvivalStage(!!presetSelection.isSurvivalStage);
+    setIsLastChanceQualifier(!!presetSelection.isLastChanceQualifier);
     if (presetSelection.tournamentWide) {
       setStatsMode("tournament");
     } else if (presetSelection.week) {
@@ -322,7 +345,12 @@ export const PlayerInputPanel: React.FC<PlayerInputPanelProps> = ({
     }
   }, [selectedLeague, availableWeeks]);
 
-  const dailyWeekMatchCode = (week: string) => "DAILY_" + week.replace(/\s+/g, "").toUpperCase();
+  // Embeds the selected stage into the record's matchCode (Group Stage stays unprefixed, matching
+  // every record saved before stages existed) so a Grand Final/Survival Stage/LCQ record never
+  // collides with a Group Stage one that happens to fall on the same date/week - each stage's
+  // periods stay their own separate records instead of overwriting each other.
+  const stageCodePrefix = isGrandFinal ? "GF_" : isSurvivalStage ? "SS_" : isLastChanceQualifier ? "LC_" : "";
+  const dailyWeekMatchCode = (week: string) => "DAILY_" + stageCodePrefix + week.replace(/\s+/g, "").toUpperCase();
 
   // 4. Dynamic Columns state
   const [columns, setColumns] = useState<ColumnConfig[]>([
@@ -365,8 +393,14 @@ export const PlayerInputPanel: React.FC<PlayerInputPanelProps> = ({
       if ((m.league || "").toLowerCase().trim() !== selectedLeague.toLowerCase().trim()) {
         return false;
       }
+      // A Group Stage and a Grand Final/Survival Stage/LCQ record can otherwise fall on the exact
+      // same calendar date/week - without checking stage too, loading one would silently load (and
+      // then overwrite on save) the wrong stage's record.
+      if (!!m.isGrandFinal !== isGrandFinal || !!m.isSurvivalStage !== isSurvivalStage || !!m.isLastChanceQualifier !== isLastChanceQualifier) {
+        return false;
+      }
       if (statsMode === "week") return m.matchCode === dailyWeekMatchCode(selectedWeek);
-      if (statsMode === "tournament") return m.matchCode === "DAILY_TOURNAMENT";
+      if (statsMode === "tournament") return m.matchCode === "DAILY_" + stageCodePrefix + "TOURNAMENT";
       return m.date === selectedDate;
     });
 
@@ -429,12 +463,12 @@ export const PlayerInputPanel: React.FC<PlayerInputPanelProps> = ({
       setFlatPlayers(initialPlayers);
       setStatusMsg(null);
     }
-  }, [selectedLeague, selectedDate, selectedWeek, statsMode, dailyStats]);
+  }, [selectedLeague, selectedDate, selectedWeek, statsMode, dailyStats, isGrandFinal, isSurvivalStage, isLastChanceQualifier]);
 
-  // Load whenever selected league, day/week mode, or the chosen period changes
+  // Load whenever selected league, day/week mode, the chosen period, or the chosen stage changes
   useEffect(() => {
     loadExistingDailyStats();
-  }, [selectedLeague, selectedDate, selectedWeek, statsMode, dailyStats.length]);
+  }, [selectedLeague, selectedDate, selectedWeek, statsMode, dailyStats.length, isGrandFinal, isSurvivalStage, isLastChanceQualifier]);
 
   // Add Dynamic Column via Custom Inline Form
   const submitAddColumn = () => {
@@ -704,9 +738,12 @@ export const PlayerInputPanel: React.FC<PlayerInputPanelProps> = ({
         id: existingRecordId,
         league: finalLeagueName,
         date: statsMode === "week" ? selectedWeek : statsMode === "tournament" ? "Sepanjang Turnamen" : selectedDate,
-        matchCode: statsMode === "week" ? dailyWeekMatchCode(selectedWeek) : statsMode === "tournament" ? "DAILY_TOURNAMENT" : ("DAILY_" + selectedDate.replace(/-/g, "")),
+        matchCode: statsMode === "week" ? dailyWeekMatchCode(selectedWeek) : statsMode === "tournament" ? ("DAILY_" + stageCodePrefix + "TOURNAMENT") : ("DAILY_" + stageCodePrefix + selectedDate.replace(/-/g, "")),
         teams: savedTeams,
-        customColumns: columns
+        customColumns: columns,
+        isGrandFinal,
+        isSurvivalStage,
+        isLastChanceQualifier
       };
 
       await onSaveDailyStats(dailyStatsRecord);
@@ -773,6 +810,48 @@ export const PlayerInputPanel: React.FC<PlayerInputPanelProps> = ({
             ⚠️ <strong>Notice:</strong> No match data has been imported yet. Please import a Match Log first in the <strong>"Import Match Log"</strong> tab so tournaments and dates can be synced automatically.
           </div>
         ) : (
+          <>
+          {/* Match Stage - same idea as Add Match Data's own Match Stage bar: which stage this
+              day/week/tournament-wide record's numbers belong to, so Player Stats can later show
+              e.g. Grand Final MVP separately from the regular Group Stage numbers. Picking a stage
+              here also re-scopes the Date/Week list below to that stage's own match dates. */}
+          <div className="space-y-1.5">
+            <label className="text-[10px] text-slate-400 font-bold uppercase block">Match Stage:</label>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {([
+                ["group", "Group Stage"],
+                ["survival", "Survival Stage"],
+                ["lcq", "Last Chance Qualifier"],
+                ["final", "Grand Final"]
+              ] as const).map(([key, label]) => {
+                const isActive = key === "group" ? (!isGrandFinal && !isSurvivalStage && !isLastChanceQualifier)
+                  : key === "survival" ? isSurvivalStage
+                  : key === "lcq" ? isLastChanceQualifier
+                  : isGrandFinal;
+                const activeClass = key === "survival" ? "bg-teal-500 border-teal-500 text-slate-950"
+                  : key === "lcq" ? "bg-indigo-500 border-indigo-500 text-slate-950"
+                  : key === "final" ? "bg-amber-500 border-amber-500 text-slate-950"
+                  : isDarkMode ? "bg-slate-700 border-slate-600 text-slate-100" : "bg-slate-300 border-slate-300 text-slate-900";
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => {
+                      setIsGrandFinal(key === "final");
+                      setIsSurvivalStage(key === "survival");
+                      setIsLastChanceQualifier(key === "lcq");
+                    }}
+                    className={`px-3 py-1.5 rounded-lg text-[10px] font-mono font-bold uppercase tracking-wide transition-all cursor-pointer border ${
+                      isActive ? activeClass : isDarkMode ? "bg-slate-900 border-slate-800 text-slate-400 hover:text-white" : "bg-white border-slate-200 text-slate-600 hover:text-slate-900"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* League Select */}
             <div className="space-y-1.5">
@@ -878,6 +957,7 @@ export const PlayerInputPanel: React.FC<PlayerInputPanelProps> = ({
               )}
             </div>
           </div>
+          </>
         )}
 
         {/* Player Stats Granularity - lives here since it's specifically about how this

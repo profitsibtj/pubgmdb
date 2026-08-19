@@ -52,7 +52,7 @@ interface PlayerStatsProps {
   roster?: RosterPlayer[];
   // Deep-links into the Player Input Panel to fix an already-posted record (all player stats
   // here originate from that panel's daily/weekly/tournament-wide stats entries).
-  onEditPlayerRecord?: (league: string, period: { date?: string; week?: string; tournamentWide?: boolean }) => void;
+  onEditPlayerRecord?: (league: string, period: { date?: string; week?: string; tournamentWide?: boolean; isGrandFinal?: boolean; isSurvivalStage?: boolean; isLastChanceQualifier?: boolean }) => void;
 }
 
 interface MvpAspect {
@@ -80,6 +80,10 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
   // period at once, which turned into an unreadably wide table for a league with many periods
   // recorded (e.g. PMPL ID's many daily records).
   const [periodFilter, setPeriodFilter] = useState<string>("ALL");
+  // Which stage this Daily Stats data was tagged under in Player Input Panel (see its own "Match
+  // Stage" bar) - "group" is the default/most common case (every record saved before stages
+  // existed reads as Group Stage too, since it's just the absence of the other three flags).
+  const [selectedStage, setSelectedStage] = useState<"group" | "survival" | "lcq" | "final">("group");
   // Defaults to Total Kills so viewers land on the most-watched stat immediately, without having
   // to touch the Sort By dropdown themselves - still freely changeable from there afterward.
   const [sortBy, setSortBy] = useState<string>("elims");
@@ -106,7 +110,7 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
   const [editPickerModal, setEditPickerModal] = useState<{
     isOpen: boolean;
     playerName: string;
-    records: { league: string; date?: string; week?: string; tournamentWide?: boolean; label: string }[];
+    records: { league: string; date?: string; week?: string; tournamentWide?: boolean; isGrandFinal?: boolean; isSurvivalStage?: boolean; isLastChanceQualifier?: boolean; label: string }[];
   }>({ isOpen: false, playerName: "", records: [] });
 
   // Reset selected team/group/period whenever selected league changes - the available periods and
@@ -117,6 +121,14 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
     setSelectedGroup("ALL");
     setPeriodFilter("ALL");
   }, [selectedLeague]);
+
+  // Reset group/period whenever the selected Stage changes - Survival Stage/LCQ/Grand Final don't
+  // have the same "Group A/B/.../E" breakdown Group Stage does, and switching stage means an
+  // entirely different set of periods (days/weeks) is available too.
+  useEffect(() => {
+    setSelectedGroup("ALL");
+    setPeriodFilter("ALL");
+  }, [selectedStage]);
 
   // Extract unique competitions list synced with tournament presets in input match log & matches
   const uniqueLeagues = useMemo(() => {
@@ -207,6 +219,16 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
     return matchRosterPlayer(trimmed, teamName, rosterForLeague);
   }, [rosterByLeague]);
 
+  // Whether a Daily Stats record was tagged for the currently selected stage in Player Input
+  // Panel's own "Match Stage" bar - "group" matches anything with none of the other three flags
+  // set, so every record saved before stages existed (all false/unset) still reads as Group Stage.
+  const matchesSelectedStage = React.useCallback((m: Match) => {
+    if (selectedStage === "final") return !!m.isGrandFinal;
+    if (selectedStage === "survival") return !!m.isSurvivalStage;
+    if (selectedStage === "lcq") return !!m.isLastChanceQualifier;
+    return !m.isGrandFinal && !m.isSurvivalStage && !m.isLastChanceQualifier;
+  }, [selectedStage]);
+
   // Extract unique teams list that actually played in the selected tournament/league
   const uniqueTeams = useMemo(() => {
     const teamsSet = new Set<string>();
@@ -229,14 +251,19 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
     matches.forEach((m) => {
       if (!m.isDailyStats) return;
       if ((m.league || "").trim().toLowerCase() !== selectedLeague.toLowerCase()) return;
+      if (!matchesSelectedStage(m)) return;
       const code = (m.matchCode || "").toUpperCase();
       const key = m.matchCode || m.date || "unknown";
       if (map.has(key)) return;
 
+      // Strips the optional stage prefix Player Input Panel now embeds (DAILY_GF_/SS_/LC_ vs plain
+      // DAILY_ for Group Stage) before checking what kind of period this is - matchesSelectedStage
+      // above already guarantees every record reaching this point is the same stage anyway.
+      const codeAfterStage = code.replace(/^DAILY_(?:GF_|SS_|LC_)?/, "");
       let sortKey: number;
-      if (code === "DAILY_TOURNAMENT") {
+      if (codeAfterStage === "TOURNAMENT") {
         sortKey = Number.MAX_SAFE_INTEGER;
-      } else if (code.startsWith("DAILY_WEEK")) {
+      } else if (codeAfterStage.startsWith("WEEK")) {
         const weekMatch = code.match(/WEEK(\d+)/);
         sortKey = weekMatch ? parseInt(weekMatch[1], 10) : 0;
       } else {
@@ -245,7 +272,7 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
       map.set(key, { key, label: m.date || key, sortKey });
     });
     return Array.from(map.values()).sort((a, b) => a.sortKey - b.sortKey);
-  }, [matches, selectedLeague]);
+  }, [matches, selectedLeague, matchesSelectedStage]);
 
 
   // Extract dynamic columns from what was actually entered in the Player Input Panel for the
@@ -262,6 +289,7 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
     matches.forEach((m) => {
       if (!m.isDailyStats) return;
       if (selectedLeague !== "ALL" && (m.league || "").trim().toLowerCase() !== selectedLeague.toLowerCase()) return;
+      if (!matchesSelectedStage(m)) return;
 
       const cols = m.customColumns;
       if (cols && cols.length > 0) {
@@ -288,7 +316,7 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
     const known = preferredOrder.filter((k) => seen.has(k)).map((k) => seen.get(k)!);
     const extra = Array.from(seen.values()).filter((c) => !preferredOrder.includes(c.key));
     return [...known, ...extra];
-  }, [matches, selectedLeague]);
+  }, [matches, selectedLeague, matchesSelectedStage]);
 
   // MVP Score formula: a per-league weighted sum of "this player's share of the league's total for
   // a stat" (e.g. Kills, Damage). Configured from Add New Match Data's Tournament Settings (admin
@@ -315,6 +343,8 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
     matches.forEach((m) => {
       // Filter by league/competition (case-insensitive & trimmed)
       if (selectedLeague !== "ALL" && (m.league || "").trim().toLowerCase() !== selectedLeague.toLowerCase()) return;
+      // Filter by stage (Group/Survival/LCQ/Grand Final)
+      if (!matchesSelectedStage(m)) return;
 
       (m.teams || []).forEach((t) => {
         const teamName = canonicalizeTeamForMatch(t.name, m.league || "");
@@ -482,7 +512,7 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
         mvpScore: mvpScore !== null ? Math.round(mvpScore * 1000) / 1000 : null
       };
     });
-  }, [matches, selectedLeague, selectedTeam, selectedGroup, teamGroupMap, canonicalizeTeamForMatch, canonicalizePlayerForMatch, mvpFormula]);
+  }, [matches, selectedLeague, selectedTeam, selectedGroup, teamGroupMap, canonicalizeTeamForMatch, canonicalizePlayerForMatch, mvpFormula, matchesSelectedStage]);
 
   // When a specific day/week/tournament-wide period is picked (instead of "ALL"/Keseluruhan),
   // swap each player's totals for just that one record's numbers and drop anyone who didn't
@@ -490,7 +520,7 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
   // side in one increasingly wide table as a league racks up more recorded days.
   const periodScopedPlayers = useMemo(() => {
     if (periodFilter === "ALL") return playerStats;
-    return playerStats
+    const scoped = playerStats
       .map((p: any) => {
         const bucket = p.periods ? p.periods[periodFilter] : undefined;
         const matchesCount = bucket?.matchesCount || 0;
@@ -507,14 +537,29 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
           avgHeals: Math.round(((bucket.heals || 0) / matchesCount) * 10) / 10,
           avgKnocks: Math.round(((bucket.knocks || 0) / matchesCount) * 10) / 10,
           wwcdRate: Math.round(((bucket.wwcdCount || 0) / matchesCount) * 100),
-          totalPoints: Math.round((elims + placementPoints) * 10) / 10,
-          // MVP Score is a whole-tournament relative share (each stat's share of the league total)
-          // - not meaningful scoped to a single period, so it's hidden rather than shown misleadingly.
-          mvpScore: null
+          totalPoints: Math.round((elims + placementPoints) * 10) / 10
         };
       })
       .filter((p): p is NonNullable<typeof p> => p !== null);
-  }, [playerStats, periodFilter]);
+
+    // MVP Score, recomputed scoped to just this period's numbers (each aspect's share of THIS
+    // period's total, among players who actually appear in it) instead of the whole-tournament
+    // share used when Filter Period is "ALL" - so e.g. picking a single day still shows who that
+    // day's MVP was, not a blanked-out column.
+    if (mvpFormula.length === 0) return scoped.map((p: any) => ({ ...p, mvpScore: null }));
+    const periodMvpTotals: Record<string, number> = {};
+    mvpFormula.forEach((aspect) => {
+      periodMvpTotals[aspect.key] = scoped.reduce((sum, p: any) => sum + (Number(p[aspect.key]) || 0), 0);
+    });
+    return scoped.map((p: any) => {
+      const mvpScore = mvpFormula.reduce((sum, aspect) => {
+        const total = periodMvpTotals[aspect.key] || 0;
+        const share = total > 0 ? (Number(p[aspect.key]) || 0) / total : 0;
+        return sum + share * aspect.weight;
+      }, 0);
+      return { ...p, mvpScore: Math.round(mvpScore * 1000) / 1000 };
+    });
+  }, [playerStats, periodFilter, mvpFormula]);
 
   const filteredPlayers = useMemo(() => {
     return periodScopedPlayers
@@ -547,12 +592,13 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
   }, [filteredPlayers]);
 
   // Keep the current sort selection valid if its column disappears (e.g. switching to a
-  // league/team where that stat was never entered), or if it stops making sense (MVP Score is a
-  // whole-tournament share, not meaningful once scoped to a single day/week via Filter Period)
+  // league/team where that stat was never entered), or if MVP Score itself isn't configured at all
+  // for this league (it's fine to sort by it at any Filter Period now - periodScopedPlayers
+  // recomputes it scoped to whichever period is picked).
   useEffect(() => {
     if (sortBy === "matchesPlayed") return;
     if (sortBy === "mvpScore") {
-      if (mvpFormula.length === 0 || periodFilter !== "ALL") setSortBy("matchesPlayed");
+      if (mvpFormula.length === 0) setSortBy("matchesPlayed");
       return;
     }
     if (!dynamicColumns.some((c) => c.key === sortBy)) {
@@ -580,20 +626,27 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
     // Matched by the same team-aware identity the table itself uses, so two different roster
     // players who happen to share a name (see matchRosterPlayer) never get mixed into each
     // other's records here.
-    const records: { league: string; date?: string; week?: string; tournamentWide?: boolean; label: string }[] = [];
+    const records: { league: string; date?: string; week?: string; tournamentWide?: boolean; isGrandFinal?: boolean; isSurvivalStage?: boolean; isLastChanceQualifier?: boolean; label: string }[] = [];
     matches.forEach(m => {
       if (!m.isDailyStats) return;
       const hasPlayer = (m.teams || []).some(t => (t.players || []).some(p => canonicalizePlayerForMatch(p.name.trim(), m.league || "", t.name || "").id === playerId));
       if (!hasPlayer) return;
       const code = (m.matchCode || "").toUpperCase();
-      const isWeekRecord = code.startsWith("DAILY_WEEK");
-      const isTournamentWide = code === "DAILY_TOURNAMENT";
+      // Strips the optional Player Input Panel stage prefix (DAILY_GF_/SS_/LC_ vs plain DAILY_ for
+      // Group Stage) before checking what kind of period this is.
+      const codeAfterStage = code.replace(/^DAILY_(?:GF_|SS_|LC_)?/, "");
+      const isWeekRecord = codeAfterStage.startsWith("WEEK");
+      const isTournamentWide = codeAfterStage === "TOURNAMENT";
+      const stageLabel = m.isGrandFinal ? "Grand Final" : m.isSurvivalStage ? "Survival Stage" : m.isLastChanceQualifier ? "LCQ" : "Group Stage";
       records.push({
         league: m.league || "",
         date: isWeekRecord || isTournamentWide ? undefined : m.date,
         week: isWeekRecord ? m.date : undefined,
         tournamentWide: isTournamentWide,
-        label: `${m.league || "-"} • ${m.date || "-"}`
+        isGrandFinal: m.isGrandFinal,
+        isSurvivalStage: m.isSurvivalStage,
+        isLastChanceQualifier: m.isLastChanceQualifier,
+        label: `${m.league || "-"} • ${stageLabel} • ${m.date || "-"}`
       });
     });
     return records;
@@ -604,7 +657,7 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
     const records = getPlayerDailyRecords(player.id);
     if (records.length === 0) return;
     if (records.length === 1) {
-      if (onEditPlayerRecord) onEditPlayerRecord(records[0].league, { date: records[0].date, week: records[0].week, tournamentWide: records[0].tournamentWide });
+      if (onEditPlayerRecord) onEditPlayerRecord(records[0].league, { date: records[0].date, week: records[0].week, tournamentWide: records[0].tournamentWide, isGrandFinal: records[0].isGrandFinal, isSurvivalStage: records[0].isSurvivalStage, isLastChanceQualifier: records[0].isLastChanceQualifier });
       return;
     }
     setEditPickerModal({ isOpen: true, playerName: player.name, records });
@@ -697,10 +750,34 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
             </select>
           </div>
 
-          {/* Group Dropdown - only shown once this league has "Enable Group Standings Filter"
-              turned on (same opt-in Tournament Settings uses), same reasoning as there: an
-              incomplete/stale Group A-E roster would otherwise misleadingly show a near-empty group. */}
-          {groupsList.length > 0 && (
+          {/* Stage Dropdown - which stage's Daily Stats records to show (tagged in Player Input
+              Panel's own "Match Stage" bar). Group Stage is the default/most common case. Survival
+              Stage/LCQ/Grand Final don't have the Group A-E breakdown Group Stage does, so the
+              Filter Group control below only applies while Group Stage is selected. */}
+          <div className="space-y-1">
+            <label className="text-[10px] font-mono font-bold text-slate-500 uppercase">FILTER STAGE:</label>
+            <select
+              value={selectedStage}
+              onChange={(e) => setSelectedStage(e.target.value as typeof selectedStage)}
+              disabled={selectedLeague === "ALL"}
+              className={`w-full p-2 rounded-lg text-xs font-mono border focus:outline-none focus:ring-1 focus:ring-amber-500 cursor-pointer transition-all ${
+                selectedLeague === "ALL"
+                  ? `opacity-50 cursor-not-allowed text-slate-400 ${isDarkMode ? "bg-slate-900" : "bg-slate-100"}`
+                  : isDarkMode ? "bg-slate-950 border-slate-800 text-white" : "bg-slate-50 border-slate-300 text-slate-900"
+              }`}
+            >
+              <option value="group">Group Stage</option>
+              <option value="survival">Survival Stage</option>
+              <option value="lcq">Last Chance Qualifier</option>
+              <option value="final">Grand Final</option>
+            </select>
+          </div>
+
+          {/* Group Dropdown - only shown for Group Stage once this league has "Enable Group
+              Standings Filter" turned on (same opt-in Tournament Settings uses), same reasoning as
+              there: an incomplete/stale Group A-E roster would otherwise misleadingly show a
+              near-empty group. */}
+          {selectedStage === "group" && groupsList.length > 0 && (
             <div className="space-y-1">
               <label className="text-[10px] font-mono font-bold text-slate-500 uppercase">FILTER GROUP:</label>
               <select
@@ -761,7 +838,7 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
                   {col.key === "matchesPlayed" ? col.label.toUpperCase() : `TOTAL ${col.label.toUpperCase()}`}
                 </option>
               ))}
-              {mvpFormula.length > 0 && periodFilter === "ALL" && (
+              {mvpFormula.length > 0 && (
                 <option value="mvpScore">MVP Score</option>
               )}
             </select>
@@ -844,7 +921,7 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
                         {col.label}
                       </th>
                     ))}
-                    {mvpFormula.length > 0 && periodFilter === "ALL" && (
+                    {mvpFormula.length > 0 && (
                       <th className="py-3 px-4 text-center w-24 text-amber-500 uppercase">MVP Score</th>
                     )}
                     {actionPasswordVerified && (
@@ -914,7 +991,7 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
                           })}
                           {/* MVP Score - gold/crown only for whoever actually has the highest MVP
                               Score, regardless of which column the table is currently sorted by */}
-                          {mvpFormula.length > 0 && periodFilter === "ALL" && (() => {
+                          {mvpFormula.length > 0 && (() => {
                             const isTopMvp = topMvpScore !== null && p.mvpScore === topMvpScore;
                             return (
                               <td className={`py-3 px-4 text-center font-extrabold ${isTopMvp ? "text-amber-400" : "text-slate-300"}`}>
@@ -1180,7 +1257,7 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
                   type="button"
                   onClick={() => {
                     setEditPickerModal({ isOpen: false, playerName: "", records: [] });
-                    if (onEditPlayerRecord) onEditPlayerRecord(rec.league, { date: rec.date, week: rec.week, tournamentWide: rec.tournamentWide });
+                    if (onEditPlayerRecord) onEditPlayerRecord(rec.league, { date: rec.date, week: rec.week, tournamentWide: rec.tournamentWide, isGrandFinal: rec.isGrandFinal, isSurvivalStage: rec.isSurvivalStage, isLastChanceQualifier: rec.isLastChanceQualifier });
                   }}
                   className={`w-full text-left px-3.5 py-2.5 rounded-xl border font-bold transition-all cursor-pointer flex items-center justify-between gap-2 ${
                     isDarkMode ? "bg-slate-950 border-slate-800 text-slate-200 hover:border-amber-500/50" : "bg-slate-50 border-slate-200 text-slate-800 hover:border-amber-400"

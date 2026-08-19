@@ -1278,6 +1278,30 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
         throw new Error("All team names must be filled in.");
       }
 
+      // Catches the same (league, date, Game/Match No, stage) combo being saved twice for two
+      // genuinely different matches - the most common real cause being a postponed match whose
+      // Date got moved to the next day without also updating its Game/Match No, so it collides
+      // with whatever that new day already numbered. Two matches silently sharing one slot get
+      // merged into a single "game" everywhere that counts distinct Grand Final games (e.g. Smash
+      // Rule's replay), undercounting the total and scrambling its game-by-game math - so this is
+      // caught here, at save time, instead of surfacing confusingly much later in Standings.
+      const trimmedGameNo = meta.gameNo.trim();
+      const trimmedDate = meta.date;
+      const trimmedLeague = meta.league.trim();
+      const collision = matches.find(m =>
+        m.id !== editingMatch?.id &&
+        !m.isDailyStats &&
+        (m.league || "").trim().toLowerCase() === trimmedLeague.toLowerCase() &&
+        m.date === trimmedDate &&
+        (m.gameNo || "").trim() === trimmedGameNo &&
+        !!m.isGrandFinal === isGrandFinal &&
+        !!m.isSurvivalStage === isSurvivalStage &&
+        !!m.isLastChanceQualifier === isLastChanceQualifier
+      );
+      if (collision) {
+        throw new Error(`Match "${collision.matchCode}" (${collision.time || "no time set"}) already uses Date ${trimmedDate} + Game/Match No ${trimmedGameNo || "(empty)"} for this league/stage. Give this match a different Game/Match No - a common cause is postponing a match to a new Date without also updating its Game/Match No to fit that day's numbering.`);
+      }
+
       // Auto-calculate final values for each team
       const processedTeams = teams.map(t => {
         const eliminationPoints = Number(t.eliminationPoints) || 0;
