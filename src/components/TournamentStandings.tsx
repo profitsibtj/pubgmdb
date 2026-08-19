@@ -9,9 +9,14 @@ interface TournamentStandingsProps {
   matches: Match[];
   isDarkMode: boolean;
   tournaments?: any[];
+  actionPasswordVerified?: boolean;
+  // Lets the "renumber by Time" fix below actually save its corrected Game/Match No values -
+  // reuses whatever save path the rest of the app already has (App.tsx's handleSaveMatch), so a
+  // renumbered match goes through the exact same duplicate-slot validation as a manual edit would.
+  onSaveMatch?: (match: Match) => Promise<void>;
 }
 
-export const TournamentStandings: React.FC<TournamentStandingsProps> = ({ matches, isDarkMode, tournaments }) => {
+export const TournamentStandings: React.FC<TournamentStandingsProps> = ({ matches, isDarkMode, tournaments, actionPasswordVerified, onSaveMatch }) => {
   const [selectedTournament, setSelectedTournament] = useState<string>("");
   const [selectedMapFilter, setSelectedMapFilter] = useState<string>("ALL");
   const [selectedWeekFilter, setSelectedWeekFilter] = useState<string>("ALL");
@@ -428,6 +433,52 @@ export const TournamentStandings: React.FC<TournamentStandingsProps> = ({ matche
       }));
   }, [grandFinalMatchesAll]);
 
+  const [renumberingDate, setRenumberingDate] = useState<string | null>(null);
+  const [renumberMsg, setRenumberMsg] = useState<string>("");
+
+  // Fixes a duplicate slot properly instead of an admin having to guess a new Game/Match No by
+  // hand (which risks landing on an arbitrary/non-sequential number, e.g. "19" for a day that only
+  // ever had ~6 games) - every Grand Final match on that one date gets renumbered 1..N in actual
+  // play order (by Time), the same order Smash Rule's own game-by-game replay already trusts. A
+  // postponed match slots in wherever its real Time puts it, and every other match on that date
+  // shifts to make room, instead of just tacking the postponed one onto the end with a fresh number.
+  const handleRenumberDate = async (date: string) => {
+    if (!onSaveMatch) return;
+    setRenumberingDate(date);
+    setRenumberMsg("");
+    try {
+      const dayMatches = grandFinalMatchesAll.filter(m => m.date === date);
+      const timeToMinutes = (t?: string): number => {
+        if (!t) return Number.MAX_SAFE_INTEGER;
+        const parts = t.split(":").map(n => parseInt(n, 10));
+        if (parts.some(n => Number.isNaN(n))) return Number.MAX_SAFE_INTEGER;
+        return parts[0] * 60 + (parts[1] || 0);
+      };
+      const sorted = [...dayMatches].sort((a, b) => {
+        const diff = timeToMinutes(a.time) - timeToMinutes(b.time);
+        if (diff !== 0) return diff;
+        // Untimed/tied entries keep their existing relative order rather than shuffling randomly.
+        return (a.gameNo || "").localeCompare(b.gameNo || "", undefined, { numeric: true });
+      });
+
+      let changed = 0;
+      for (let i = 0; i < sorted.length; i++) {
+        const newGameNo = String(i + 1);
+        const m = sorted[i];
+        if ((m.gameNo || "") === newGameNo) continue;
+        await onSaveMatch({ ...m, gameNo: newGameNo, totalGame: newGameNo });
+        changed++;
+      }
+      setRenumberMsg(changed > 0
+        ? `${date}: ${sorted.length} match direnumber jadi Game 1-${sorted.length} sesuai urutan Time.`
+        : `${date} sudah berurutan, tidak ada yang perlu diubah.`);
+    } catch (err: any) {
+      setRenumberMsg(`Gagal renumber ${date}: ${err.message || err}`);
+    } finally {
+      setRenumberingDate(null);
+    }
+  };
+
   // Replays Grand Final games in order to find the Match Point target (leader's total after the
   // configured lock-in game, plus the configured bonus), which teams have since reached it, and -
   // walking forward from there - the first eligible team to also grab a WWCD (the moment Smash Rule
@@ -658,16 +709,29 @@ export const TournamentStandings: React.FC<TournamentStandingsProps> = ({ matche
                   ⚠ {duplicateGrandFinalSlots.length} Date + Game/Match No kembar terdeteksi
                 </span>
                 <p className="normal-case font-sans text-red-400/90">
-                  Match-match ini kehitung sebagai 1 game yang sama (poinnya ke-gabung jadi satu) sampai Game/Match No salah satunya diedit jadi unik lewat Match Explorer:
+                  Match-match ini kehitung sebagai 1 game yang sama (poinnya ke-gabung jadi satu) sampai Game/Match No-nya dibikin unik lagi. Jangan pilih angka baru sembarangan (misal lompat ke "19" padahal cuma ada 6 match sehari) - klik "Renumber by Time" biar semua match di tanggal itu diurut ulang 1..N sesuai jam main sebenarnya:
                 </p>
-                <ul className="space-y-1">
+                <ul className="space-y-2">
                   {duplicateGrandFinalSlots.map((slot, i) => (
-                    <li key={i}>
-                      <strong>{slot.date} · Game {slot.gameNo}:</strong>{" "}
-                      {slot.entries.map(e => `${e.matchCode} (${e.time})`).join("  vs.  ")}
+                    <li key={i} className="flex flex-wrap items-center gap-2">
+                      <span>
+                        <strong>{slot.date} · Game {slot.gameNo}:</strong>{" "}
+                        {slot.entries.map(e => `${e.matchCode} (${e.time})`).join("  vs.  ")}
+                      </span>
+                      {actionPasswordVerified && onSaveMatch && (
+                        <button
+                          type="button"
+                          onClick={() => handleRenumberDate(slot.date)}
+                          disabled={renumberingDate === slot.date}
+                          className="px-2.5 py-1 bg-red-500/10 hover:bg-red-500/20 disabled:opacity-50 disabled:cursor-not-allowed text-red-300 rounded-lg text-[10px] font-bold uppercase cursor-pointer border border-red-500/30 transition-all shrink-0"
+                        >
+                          {renumberingDate === slot.date ? "Renumbering..." : "Renumber by Time"}
+                        </button>
+                      )}
                     </li>
                   ))}
                 </ul>
+                {renumberMsg && <p className="normal-case font-sans text-amber-300 pt-1 border-t border-red-500/20">{renumberMsg}</p>}
               </div>
             )}
 

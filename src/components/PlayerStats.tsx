@@ -689,7 +689,7 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
       <div className={`p-5 rounded-2xl flex flex-col gap-4 transition-all ${
         isDarkMode ? "bg-slate-900/50" : "bg-white border border-slate-200 shadow-sm"
       }`}>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3.5">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-3.5">
           {/* Player Search Input */}
           <div className="space-y-1">
             <label className="text-[10px] font-mono font-bold text-slate-500 uppercase">SEARCH PRO PLAYER:</label>

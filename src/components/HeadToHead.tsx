@@ -68,9 +68,9 @@ export const HeadToHead: React.FC<HeadToHeadProps> = ({ matches, isDarkMode, tou
     return matchRosterPlayer(trimmed, teamName, rosterForLeague);
   }, [rosterByLeague]);
 
-  // Process overall stats of players. Only fields actually collected by the Player Input Panel
-  // are tracked here (matches, elims, damage, assists, WWCD) - knocks/heals/survival time/MVP
-  // aren't part of that data entry flow, so they're left out rather than always showing 0.
+  // Process overall stats of players. WWCD is a team-level outcome (everyone on the winning squad
+  // gets it, regardless of their own individual play), so it's not very telling as a player-vs-
+  // player comparison stat - Knocks is used here instead, an actual individual combat number.
   const playersData = useMemo(() => {
     const list: { [id: string]: {
       id: string;
@@ -81,7 +81,7 @@ export const HeadToHead: React.FC<HeadToHeadProps> = ({ matches, isDarkMode, tou
       elims: number;
       assists: number;
       damage: number;
-      wwcd: number;
+      knocks: number;
     }} = {};
 
     matches.forEach((m) => {
@@ -111,7 +111,7 @@ export const HeadToHead: React.FC<HeadToHeadProps> = ({ matches, isDarkMode, tou
               elims: 0,
               assists: 0,
               damage: 0,
-              wwcd: 0
+              knocks: 0
             };
           }
 
@@ -119,14 +119,13 @@ export const HeadToHead: React.FC<HeadToHeadProps> = ({ matches, isDarkMode, tou
           pl.teamName = t.name || pl.teamName;
           if (m.isDailyStats) {
             pl.matches += p.matchesPlayed !== undefined ? p.matchesPlayed : 0;
-            pl.wwcd += p.wwcdCount || 0;
           } else {
             pl.matches += 1;
-            if (t.placement === 1) pl.wwcd += 1;
           }
           pl.elims += p.elims || 0;
           pl.assists += p.assists || 0;
           pl.damage += p.damage || 0;
+          pl.knocks += p.knocks || 0;
         });
       });
     });
@@ -136,7 +135,7 @@ export const HeadToHead: React.FC<HeadToHeadProps> = ({ matches, isDarkMode, tou
       avgElims: p.matches > 0 ? Math.round((p.elims / p.matches) * 10) / 10 : 0,
       avgDamage: p.matches > 0 ? Math.round(p.damage / p.matches) : 0,
       avgAssists: p.matches > 0 ? Math.round((p.assists / p.matches) * 10) / 10 : 0,
-      wwcdRate: p.matches > 0 ? Math.round((p.wwcd / p.matches) * 100) : 0
+      avgKnocks: p.matches > 0 ? Math.round((p.knocks / p.matches) * 10) / 10 : 0
     }));
   }, [matches, canonicalizePlayerForMatch, selectedLeague]);
 
@@ -375,7 +374,7 @@ export const HeadToHead: React.FC<HeadToHeadProps> = ({ matches, isDarkMode, tou
                     { label: "AVG ELIMS", val1: (obj1 as any).avgElims, val2: (obj2 as any).avgElims, max: 4.0, display: (v: number) => v.toFixed(1) },
                     { label: "AVG DAMAGE", val1: (obj1 as any).avgDamage, val2: (obj2 as any).avgDamage, max: 600, display: (v: number) => Math.round(v).toString() },
                     { label: "AVG ASSISTS", val1: (obj1 as any).avgAssists, val2: (obj2 as any).avgAssists, max: 3.0, display: (v: number) => v.toFixed(1) },
-                    { label: "WWCD RATE", val1: (obj1 as any).wwcdRate, val2: (obj2 as any).wwcdRate, max: 50, display: (v: number) => `${v}%` },
+                    { label: "AVG KNOCKS", val1: (obj1 as any).avgKnocks, val2: (obj2 as any).avgKnocks, max: 5.0, display: (v: number) => v.toFixed(1) },
                     { label: "MATCHES", val1: (obj1 as any).matches, val2: (obj2 as any).matches, max: 15, display: (v: number) => `${v}x` }
                   ]
                 : [
@@ -598,30 +597,61 @@ export const HeadToHead: React.FC<HeadToHeadProps> = ({ matches, isDarkMode, tou
                 </div>
               )}
 
-              {/* WWCD Rate bar */}
-              <div className="space-y-1">
-                <div className="flex justify-between text-xs font-mono">
-                  <span className={`text-left flex items-center justify-start gap-1 ${obj1.wwcdRate > obj2.wwcdRate ? "text-amber-500 font-bold" : "text-slate-400"}`}>
-                    {obj1.wwcdRate > obj2.wwcdRate && <Crown className="w-3.5 h-3.5 text-amber-500 shrink-0" />}
-                    {obj1.wwcdRate}%
-                  </span>
-                  <span className="text-slate-500 font-bold uppercase text-[10px]">WWCD WINRATE</span>
-                  <span className={`text-right flex items-center justify-end gap-1 ${obj2.wwcdRate > obj1.wwcdRate ? "text-teal-400 font-bold" : "text-slate-400"}`}>
-                    {obj2.wwcdRate > obj1.wwcdRate && <Crown className="w-3.5 h-3.5 text-teal-400 shrink-0" />}
-                    {obj2.wwcdRate}%
-                  </span>
+              {/* WWCD Rate bar (team only) - a squad's WWCD is a shared outcome, so it stays a team
+                  stat. For players, Avg Knocks (below) is shown instead. */}
+              {compType === "team" && (
+                <div className="space-y-1">
+                  <div className="flex justify-between text-xs font-mono">
+                    <span className={`text-left flex items-center justify-start gap-1 ${(obj1 as any).wwcdRate > (obj2 as any).wwcdRate ? "text-amber-500 font-bold" : "text-slate-400"}`}>
+                      {(obj1 as any).wwcdRate > (obj2 as any).wwcdRate && <Crown className="w-3.5 h-3.5 text-amber-500 shrink-0" />}
+                      {(obj1 as any).wwcdRate}%
+                    </span>
+                    <span className="text-slate-500 font-bold uppercase text-[10px]">WWCD WINRATE</span>
+                    <span className={`text-right flex items-center justify-end gap-1 ${(obj2 as any).wwcdRate > (obj1 as any).wwcdRate ? "text-teal-400 font-bold" : "text-slate-400"}`}>
+                      {(obj2 as any).wwcdRate > (obj1 as any).wwcdRate && <Crown className="w-3.5 h-3.5 text-teal-400 shrink-0" />}
+                      {(obj2 as any).wwcdRate}%
+                    </span>
+                  </div>
+                  <div className="h-2 rounded-full overflow-hidden bg-slate-950 flex border border-slate-900">
+                    <div
+                      className="bg-amber-500 h-full border-r border-slate-950 transition-all duration-300"
+                      style={{ width: `${(obj1 as any).wwcdRate + (obj2 as any).wwcdRate > 0 ? ((obj1 as any).wwcdRate / ((obj1 as any).wwcdRate + (obj2 as any).wwcdRate)) * 100 : 50}%` }}
+                    />
+                    <div
+                      className="bg-teal-500 h-full transition-all duration-300"
+                      style={{ width: `${(obj1 as any).wwcdRate + (obj2 as any).wwcdRate > 0 ? ((obj2 as any).wwcdRate / ((obj1 as any).wwcdRate + (obj2 as any).wwcdRate)) * 100 : 50}%` }}
+                    />
+                  </div>
                 </div>
-                <div className="h-2 rounded-full overflow-hidden bg-slate-950 flex border border-slate-900">
-                  <div 
-                    className="bg-amber-500 h-full border-r border-slate-950 transition-all duration-300" 
-                    style={{ width: `${obj1.wwcdRate + obj2.wwcdRate > 0 ? (obj1.wwcdRate / (obj1.wwcdRate + obj2.wwcdRate)) * 100 : 50}%` }} 
-                  />
-                  <div 
-                    className="bg-teal-500 h-full transition-all duration-300" 
-                    style={{ width: `${obj1.wwcdRate + obj2.wwcdRate > 0 ? (obj2.wwcdRate / (obj1.wwcdRate + obj2.wwcdRate)) * 100 : 50}%` }} 
-                  />
+              )}
+
+              {/* Knocks bar (player only) - replaces WWCD here, which is a team-level outcome and
+                  not very telling about one player's own individual play. */}
+              {compType === "player" && (
+                <div className="space-y-1">
+                  <div className="flex justify-between text-xs font-mono">
+                    <span className={`text-left flex items-center justify-start gap-1 ${(obj1 as any).avgKnocks > (obj2 as any).avgKnocks ? "text-amber-500 font-bold" : "text-slate-400"}`}>
+                      {(obj1 as any).avgKnocks > (obj2 as any).avgKnocks && <Crown className="w-3.5 h-3.5 text-amber-500 shrink-0" />}
+                      {(obj1 as any).avgKnocks.toFixed(1)} Knocks
+                    </span>
+                    <span className="text-slate-500 font-bold uppercase text-[10px]">AVG KNOCKS</span>
+                    <span className={`text-right flex items-center justify-end gap-1 ${(obj2 as any).avgKnocks > (obj1 as any).avgKnocks ? "text-teal-400 font-bold" : "text-slate-400"}`}>
+                      {(obj2 as any).avgKnocks > (obj1 as any).avgKnocks && <Crown className="w-3.5 h-3.5 text-teal-400 shrink-0" />}
+                      {(obj2 as any).avgKnocks.toFixed(1)} Knocks
+                    </span>
+                  </div>
+                  <div className="h-2 rounded-full overflow-hidden bg-slate-950 flex border border-slate-900">
+                    <div
+                      className="bg-amber-500 h-full border-r border-slate-950 transition-all duration-300"
+                      style={{ width: `${(obj1 as any).avgKnocks + (obj2 as any).avgKnocks > 0 ? ((obj1 as any).avgKnocks / ((obj1 as any).avgKnocks + (obj2 as any).avgKnocks)) * 100 : 50}%` }}
+                    />
+                    <div
+                      className="bg-teal-500 h-full transition-all duration-300"
+                      style={{ width: `${(obj1 as any).avgKnocks + (obj2 as any).avgKnocks > 0 ? ((obj2 as any).avgKnocks / ((obj1 as any).avgKnocks + (obj2 as any).avgKnocks)) * 100 : 50}%` }}
+                    />
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* Assists bar (player only) */}
               {compType === "player" && (
@@ -699,8 +729,8 @@ export const HeadToHead: React.FC<HeadToHeadProps> = ({ matches, isDarkMode, tou
                       <span className="text-slate-200 font-extrabold">{(obj1 as any).assists} vs {(obj2 as any).assists}</span>
                     </div>
                     <div className="flex justify-between py-1">
-                      <span className="text-slate-400">WWCD Rate:</span>
-                      <span className="text-slate-200 font-extrabold">{(obj1 as any).wwcdRate}% vs {(obj2 as any).wwcdRate}%</span>
+                      <span className="text-slate-400">Total Knocks:</span>
+                      <span className="text-slate-200 font-extrabold">{(obj1 as any).knocks} vs {(obj2 as any).knocks}</span>
                     </div>
                   </>
                 )}
