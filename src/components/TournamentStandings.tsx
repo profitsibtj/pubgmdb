@@ -442,7 +442,17 @@ export const TournamentStandings: React.FC<TournamentStandingsProps> = ({ matche
     }
     const bonus = Number(currentPreset.smashRuleBonus) || 0;
 
+    // Seeded with each team's one-time Grand Final starting bonus (grandFinalBonusByTeam), so the
+    // Match Point target/leader is computed against the same bonus-inclusive total Standings shows
+    // - otherwise a team's real standing and its Smash Rule eligibility could disagree.
     const running: Record<string, number> = {};
+    if (currentPreset.grandFinalBonusByTeam) {
+      Object.entries(currentPreset.grandFinalBonusByTeam).forEach(([rawName, teamBonus]) => {
+        const name = canonicalizeTeam(rawName.trim());
+        if (!name) return;
+        running[name] = (running[name] || 0) + (Number(teamBonus) || 0);
+      });
+    }
     let matchPointTarget: number | null = null;
     let champion: string | null = null;
     let championAtGameIndex: number | null = null;

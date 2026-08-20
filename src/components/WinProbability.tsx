@@ -125,7 +125,11 @@ export const WinProbability: React.FC<WinProbabilityProps> = ({ matches, isDarkM
         bonus: Number(currentPreset?.smashRuleBonus) || 0
       } : undefined;
       const manualTeams = hasRealDataForStage ? undefined : manualTeamsText.split("\n").map(t => t.trim()).filter(Boolean);
-      const out = simulateWinProbability(matches, selectedTournament, stage, total, canonicalizeTeam, smashRule, SIMULATIONS, manualTeams);
+      // Grand Final's one-time starting bonus (Tournament Settings) applies whether or not any
+      // real match has been played yet - a fresh Grand Final that hasn't started still has a
+      // seeded bonus to simulate from.
+      const startingBonus = stage === "final" ? currentPreset?.grandFinalBonusByTeam : undefined;
+      const out = simulateWinProbability(matches, selectedTournament, stage, total, canonicalizeTeam, smashRule, SIMULATIONS, manualTeams, startingBonus);
       if (out.length === 0) {
         setRunError(hasRealDataForStage
           ? "Not enough match data recorded yet to simulate this stage."

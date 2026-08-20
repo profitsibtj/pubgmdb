@@ -445,7 +445,8 @@ export const simulateWinProbability = (
   canonicalizeName: (rawName: string) => string = (n) => n.trim(),
   smashRule?: { enabled: boolean; lockAfterGame: number | null; bonus: number },
   simulations: number = 100000,
-  manualTeams?: string[]
+  manualTeams?: string[],
+  startingBonus?: Record<string, number>
 ): WinProbabilityResult[] => {
   const relevantMatches = matches.filter(m => {
     if (m.isDailyStats || !sameLeague(m.league, leagueName)) return false;
@@ -509,6 +510,19 @@ export const simulateWinProbability = (
     });
   }
 
+  // A one-time starting bonus (e.g. Grand Final's, entered once in Tournament Settings - see
+  // grandFinalBonusByTeam) applied on top of each team's baseline exactly once, the same way
+  // Standings folds it into the real total - works whether that baseline came from real match
+  // history or the manual team list (a fresh Grand Final that hasn't started yet still has a
+  // seeded bonus to simulate from).
+  if (startingBonus) {
+    Object.entries(startingBonus).forEach(([rawName, bonus]) => {
+      const name = canonicalizeName(rawName.trim());
+      if (!name || !(name in currentPoints)) return;
+      currentPoints[name] += Number(bonus) || 0;
+    });
+  }
+
   const gamesPlayed = usingManualTeams ? 0 : gameKeys.length;
   const remainingGames = Math.max(0, totalGames - gamesPlayed);
   // With no real games yet, there's no empirical ceiling to draw from - estimate it as a placement-1
@@ -542,7 +556,16 @@ export const simulateWinProbability = (
   const realEligible = new Set<string>();
   const useSmash = stage === "final" && !!smashRule?.enabled && !!smashRule.lockAfterGame && smashRule.lockAfterGame >= 1;
   if (useSmash && gamesPlayed >= (smashRule!.lockAfterGame as number)) {
+    // Seeded with the same one-time starting bonus already folded into currentPoints, so the real
+    // Match Point target lines up with the bonus-inclusive totals Standings shows.
     const runningAtLock: Record<string, number> = {};
+    if (startingBonus) {
+      Object.entries(startingBonus).forEach(([rawName, teamBonus]) => {
+        const name = canonicalizeName(rawName.trim());
+        if (!name) return;
+        runningAtLock[name] = (runningAtLock[name] || 0) + (Number(teamBonus) || 0);
+      });
+    }
     for (let g = 0; g < (smashRule!.lockAfterGame as number); g++) {
       const key = gameKeys[g];
       relevantMatches.filter(m => (m.matchCode || "") === key.matchCode && (m.gameNo || "") === key.gameNo).forEach(m => {
