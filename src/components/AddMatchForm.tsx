@@ -226,6 +226,10 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
     // Points total.
     finalBonusMode?: "leaguePoints" | "rankTable";
     finalBonusPointsTable?: number[];
+    // The Grand Final starting bonus, entered ONCE per team here (not on any individual match) and
+    // added on top of the sum of their actual Grand Final match results - distinct from a per-match
+    // Team.bonusPoints (a situational bonus for one specific game). Keyed by team name.
+    grandFinalBonusByTeam?: Record<string, number>;
     // Smash Rule: an alternative Grand Final win condition (used by e.g. PMWC/PMGC), distinct from
     // the plain "highest total after every scheduled game" default - opt-in per tournament since
     // most leagues don't use it. Once smashRuleLockAfterGame games are in, the then-current leader's
@@ -819,18 +823,6 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
         })}
       </div>
 
-      {isGrandFinal && activeTournament?.leagueRankPointsEnabled && (
-        <button
-          type="button"
-          onClick={handleFillBonusFromLeaguePoints}
-          className="ml-auto px-3 py-1.5 bg-teal-500/10 hover:bg-teal-500/20 text-teal-400 rounded-lg border border-teal-500/20 text-[10px] font-bold font-mono transition-all cursor-pointer"
-          title={activeTournament.finalBonusMode === "rankTable"
-            ? "Fill in each team's Bonus Points from the Grand Final Bonus rank table, based on their overall regular season standing"
-            : "Fill in each team's Bonus Points from accumulated regular season League Rank Points"}
-        >
-          {activeTournament.finalBonusMode === "rankTable" ? "Fill Bonus Points from Rank Table" : "Fill Bonus Points from League Points"}
-        </button>
-      )}
     </div>
   );
 
@@ -956,38 +948,28 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
     setTimeout(() => setSuccessMsg(""), 2500);
   };
 
-  // Seed each team's Bonus Point from their overall regular-season standing, for use going into a
-  // Grand Final match. Matches teams by name (case-insensitive). Two sources, per finalBonusMode:
-  // the raw accumulated League Points total (default), or a separate bonus value per final standing
-  // (leagueStandings is already sorted by rank, so its index directly maps to finalBonusPointsTable).
-  const handleFillBonusFromLeaguePoints = () => {
+  // Seeds the Grand Final starting bonus (see grandFinalBonusByTeam) from the tournament's overall
+  // regular-season standing - a one-time, tournament-level value, not tied to any single match.
+  // Two sources, per finalBonusMode: the raw accumulated League Points total (default), or a
+  // separate bonus value per final standing (leagueStandings is already sorted by rank, so its
+  // index directly maps to finalBonusPointsTable).
+  const handleFillGrandFinalBonus = () => {
     if (!activeTournament?.leagueRankPointsEnabled) return;
     const leagueStandings = calculateLeagueRankStandings(
       matches,
-      meta.league.trim(),
+      activeTournament.name,
       activeTournament.leagueRankPointsTable || [],
       activeTournament.tiebreaker || "WWCD-PlacementPoint-Kill"
     );
     const useRankTable = activeTournament.finalBonusMode === "rankTable";
     const finalBonusPointsTable = activeTournament.finalBonusPointsTable || [];
-    const pointsByTeam: Record<string, number> = {};
+    const bonusByTeam: Record<string, number> = {};
     leagueStandings.forEach((s, idx) => {
-      pointsByTeam[s.team.toLowerCase().trim()] = useRankTable ? (finalBonusPointsTable[idx] || 0) : s.totalLeaguePoints;
+      bonusByTeam[s.team] = useRankTable ? (finalBonusPointsTable[idx] || 0) : s.totalLeaguePoints;
     });
 
-    setTeams(prev => prev.map(t => {
-      const leaguePoints = pointsByTeam[(t.name || "").toLowerCase().trim()];
-      if (leaguePoints === undefined) return t;
-      const elims = Number(t.eliminationPoints) || 0;
-      const placementPoints = calculatePlacementPoints(t.placement);
-      return {
-        ...t,
-        bonusPoints: leaguePoints,
-        totalPoints: placementPoints + elims + leaguePoints
-      };
-    }));
-
-    setSuccessMsg("Bonus Points filled in from League Rank Points successfully!");
+    updateActiveTournament({ grandFinalBonusByTeam: bonusByTeam });
+    setSuccessMsg("Grand Final starting bonus filled in for every team!");
     setTimeout(() => setSuccessMsg(""), 2500);
   };
 
@@ -2034,6 +2016,61 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
                     </div>
                   )}
 
+                  {/* Grand Final starting bonus - entered ONCE here per team (not per match), and
+                      added on top of that team's summed Grand Final match results in Standings.
+                      Separate from a per-match Team.bonusPoints (a situational bonus for one game,
+                      format "16" lobbies only) - this one applies once to the whole stage. */}
+                  {(() => {
+                    const grandFinalTeams = Array.from(new Set(
+                      (activeTournament?.grandFinalTeamsText || "").split("\n").map(t => t.trim()).filter(Boolean)
+                    ));
+                    return (
+                      <div className="bg-slate-950/20 p-4 rounded-xl border border-slate-850/60 space-y-3">
+                        <div className="flex items-center justify-between gap-3 flex-wrap">
+                          <label className="text-[10px] font-mono font-bold text-amber-500 uppercase tracking-wider block">Grand Final Starting Bonus (one-time)</label>
+                          {activeTournament?.leagueRankPointsEnabled && (
+                            <button
+                              type="button"
+                              onClick={handleFillGrandFinalBonus}
+                              className="px-3 py-1.5 bg-teal-500/10 hover:bg-teal-500/20 text-teal-400 rounded-lg border border-teal-500/20 text-[10px] font-bold font-mono transition-all cursor-pointer"
+                              title={activeTournament?.finalBonusMode === "rankTable"
+                                ? "Fill in every team's Grand Final bonus from the rank table above, based on their overall regular season standing"
+                                : "Fill in every team's Grand Final bonus from accumulated regular season League Rank Points"}
+                            >
+                              {activeTournament?.finalBonusMode === "rankTable" ? "Fill from Rank Table" : "Fill from League Points"}
+                            </button>
+                          )}
+                        </div>
+                        <p className="text-[9px] text-slate-500 -mt-1">
+                          Set once before Grand Final games start - added to each team's summed Grand Final match results in Standings, not baked into any single game's score.
+                        </p>
+                        {grandFinalTeams.length === 0 ? (
+                          <p className="text-xs text-slate-500 font-mono">Set the Grand Final team list (above) first, then each team's bonus can be entered here.</p>
+                        ) : (
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                            {grandFinalTeams.map((team: string) => (
+                              <div key={team} className={`flex items-center justify-between gap-1.5 rounded-lg px-2.5 py-1.5 border ${isDarkMode ? "bg-slate-900/60 border-slate-800" : "bg-white border-slate-300"}`}>
+                                <span className="text-[10px] font-bold truncate" title={team}>{team}</span>
+                                <input
+                                  type="number"
+                                  value={activeTournament?.grandFinalBonusByTeam?.[team] ?? ""}
+                                  placeholder="0"
+                                  onChange={(e) => {
+                                    const val = Number(e.target.value) || 0;
+                                    updateActiveTournament({
+                                      grandFinalBonusByTeam: { ...(activeTournament?.grandFinalBonusByTeam || {}), [team]: val }
+                                    });
+                                  }}
+                                  className={`w-14 shrink-0 bg-transparent text-center text-xs font-bold focus:outline-none ${isDarkMode ? "text-teal-300" : "text-teal-700"}`}
+                                />
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+
                   {/* Smash Rule configuration - same deal, toggle lives in Tournament Options above. */}
                   {activeTournament?.smashRuleEnabled && (
                     <div className="bg-slate-950/20 p-4 rounded-xl border border-slate-850/60 space-y-3">
@@ -2470,7 +2507,10 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
                           <th className="py-2 px-1.5 w-8 text-center font-bold uppercase text-[9px] tracking-wider">#</th>
                           <th className="py-2 px-2 min-w-[120px] font-bold uppercase text-[9px] tracking-wider">Squad / Team Name</th>
                           <th className="py-2 px-1 w-12 text-center font-bold uppercase text-[9px] tracking-wider">Kills</th>
-                          {activeTournament?.format === "16" && (
+                          {/* A per-match situational bonus (format "16" only, and never Grand
+                              Final - its bonus is entered once in Tournament Settings and applied
+                              to the whole stage's total, not baked into any single match). */}
+                          {(activeTournament?.format === "16" && !isGrandFinal) && (
                             <th className="py-2 px-1 w-12 text-center font-bold uppercase text-[9px] tracking-wider text-teal-400">Bonus</th>
                           )}
                           <th className="py-2 px-2 w-16 text-center font-bold uppercase text-[9px] tracking-wider">Points</th>
@@ -2563,7 +2603,7 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
                                   required
                                 />
                               </td>
-                              {activeTournament?.format === "16" && (
+                              {(activeTournament?.format === "16" && !isGrandFinal) && (
                                 <td className="py-1.5 px-1 text-center" onClick={(e) => e.stopPropagation()}>
                                   <input
                                     type="number"

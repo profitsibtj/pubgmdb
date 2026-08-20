@@ -231,6 +231,7 @@ export const TournamentStandings: React.FC<TournamentStandingsProps> = ({ matche
       eliminationPoints: number;
       placementPoints: number;
       totalPoints: number;
+      startingBonus: number;
       history: {
         matchCode: string;
         date: string;
@@ -258,6 +259,7 @@ export const TournamentStandings: React.FC<TournamentStandingsProps> = ({ matche
             eliminationPoints: 0,
             placementPoints: 0,
             totalPoints: 0,
+            startingBonus: 0,
             history: []
           };
         }
@@ -282,6 +284,19 @@ export const TournamentStandings: React.FC<TournamentStandingsProps> = ({ matche
         });
       });
     });
+
+    // Grand Final's starting bonus is entered ONCE per team in Tournament Settings (not on any
+    // single match) and applied here, on top of the summed match totals - not baked into any one
+    // game's own score, so a team's match-by-match history above stays a true record of what
+    // actually happened each game.
+    if (viewMode === "final" && currentPreset?.grandFinalBonusByTeam) {
+      Object.entries(currentPreset.grandFinalBonusByTeam).forEach(([rawName, bonus]) => {
+        const teamName = canonicalizeTeam(rawName.trim());
+        if (!teamName || !teamMap[teamName]) return;
+        teamMap[teamName].startingBonus = Number(bonus) || 0;
+        teamMap[teamName].totalPoints += Number(bonus) || 0;
+      });
+    }
 
     // Sort each team's history chronologically so the match log & placement graph read left-to-right / top-to-bottom in play order
     Object.values(teamMap).forEach(stats => {
@@ -846,6 +861,9 @@ export const TournamentStandings: React.FC<TournamentStandingsProps> = ({ matche
                       <th className="py-3 px-3 text-center w-16">WWCD</th>
                       <th className="py-3 px-4 text-center w-24">Placement</th>
                       <th className="py-3 px-4 text-center w-24">Elims</th>
+                      {viewMode === "final" && (
+                        <th className="py-3 px-4 text-center w-24 text-teal-400">Bonus</th>
+                      )}
                       <th className="py-3 px-4 text-center text-amber-500 bg-amber-500/5 font-black w-24">TOTAL</th>
                     </tr>
                   </thead>
@@ -906,6 +924,9 @@ export const TournamentStandings: React.FC<TournamentStandingsProps> = ({ matche
                           <td className="py-3 px-3 text-center text-amber-500 font-extrabold w-16">{team.wwcdCount}</td>
                           <td className={`py-3 px-4 text-center w-24 ${isDarkMode ? "text-slate-400" : "text-slate-600"}`}>{team.placementPoints}</td>
                           <td className={`py-3 px-4 text-center font-bold w-24 ${isDarkMode ? "text-teal-400" : "text-teal-600"}`}>{team.eliminationPoints}</td>
+                          {viewMode === "final" && (
+                            <td className={`py-3 px-4 text-center font-bold w-24 ${isDarkMode ? "text-teal-400" : "text-teal-600"}`}>{team.startingBonus || 0}</td>
+                          )}
                           <td className={`py-3 px-4 text-center text-sm font-black bg-amber-500/5 w-24 ${
                             isSelected ? "text-amber-400 border-l border-amber-500/30" : "text-amber-500"
                           }`}>
