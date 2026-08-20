@@ -932,8 +932,8 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
                 <tbody className="divide-y divide-slate-800/30">
                   {filteredPlayers.map((p, index) => {
                     return (
-                      <React.Fragment key={p.id}>
-                        <tr 
+                        <tr
+                          key={p.id}
                           className={`transition-all ${
                             isDarkMode 
                               ? "text-slate-300 hover:bg-slate-900/20 border-b border-slate-900/50" 
@@ -1026,7 +1026,6 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
                             </td>
                           )}
                         </tr>
-                      </React.Fragment>
                     );
                   })}
                 </tbody>

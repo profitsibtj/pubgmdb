@@ -1,5 +1,6 @@
 import { Match, ScheduleEntry, DailyStatsEntry } from "./types";
 import { getBrowserSupabase } from "./supabaseBrowserClient";
+import { calculatePlacementPoints } from "./utils";
 
 const mapMatchFromDb = (row: any) => {
   if (!row) return null;
@@ -130,19 +131,6 @@ const mapRosterToDb = (player: any) => {
     league: player.league || null,
     previous_names: player.previousNames || [],
   };
-};
-
-// Map standard PUBGM placement points system
-const calculatePlacementPoints = (placement: number): number => {
-  const p = Number(placement) || 0;
-  if (p === 1) return 10;
-  if (p === 2) return 6;
-  if (p === 3) return 5;
-  if (p === 4) return 4;
-  if (p === 5) return 3;
-  if (p === 6) return 2;
-  if (p === 7 || p === 8) return 1;
-  return 0;
 };
 
 // Format Match Data to compute percentages and totals dynamically

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import {
-  Activity, Users, ArrowRightLeft, PlusCircle, LogOut, Sun, Moon, Lock, Award, Trophy, MapPin
+  Activity, Users, ArrowRightLeft, PlusCircle, LogOut, Sun, Moon, Lock, Award, Trophy, MapPin, Dices
 } from "lucide-react";
 import { Match, ScheduleEntry, DailyStatsEntry } from "./types";
 import { AuthScreen } from "./components/AuthScreen";
@@ -11,6 +11,7 @@ import { HeadToHead } from "./components/HeadToHead";
 import { RosterManager, RosterPlayer } from "./components/RosterManager";
 import { PlayerInputPanel } from "./components/PlayerInputPanel";
 import { TournamentStandings } from "./components/TournamentStandings";
+import { WinProbability } from "./components/WinProbability";
 import { DropZoneSimulator } from "./components/DropZoneSimulator";
 import { MatchSchedule } from "./components/MatchSchedule";
 import { clientDb } from "./firebaseClient";
@@ -1198,37 +1199,37 @@ export default function App() {
 
       const tokenToUse = actionPassword || token || "";
 
-      for (const m of matchesToUpdate) {
+      // Each record's update is independent (different match/daily-stats ids), so they run
+      // concurrently instead of one round-trip at a time.
+      await Promise.all(matchesToUpdate.map(m => {
         const updatedMatch: Match = { ...m, teams: stripPlayer(m.teams || []) };
         if (clientDb.getIsStatic()) {
-          await clientDb.updateMatch(m.id!, updatedMatch);
-        } else {
-          await fetch(`/api/matches/${m.id}`, {
-            method: "PUT",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${tokenToUse}`
-            },
-            body: JSON.stringify(updatedMatch)
-          });
+          return clientDb.updateMatch(m.id!, updatedMatch);
         }
-      }
+        return fetch(`/api/matches/${m.id}`, {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${tokenToUse}`
+          },
+          body: JSON.stringify(updatedMatch)
+        });
+      }));
 
-      for (const d of dailyStatsToUpdate) {
+      await Promise.all(dailyStatsToUpdate.map(d => {
         const updatedEntry: DailyStatsEntry = { ...d, teams: stripPlayer(d.teams || []) };
         if (clientDb.getIsStatic()) {
-          await clientDb.updateDailyStats(d.id!, updatedEntry);
-        } else {
-          await fetch(`/api/daily-stats/${d.id}`, {
-            method: "PUT",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${tokenToUse}`
-            },
-            body: JSON.stringify(updatedEntry)
-          });
+          return clientDb.updateDailyStats(d.id!, updatedEntry);
         }
-      }
+        return fetch(`/api/daily-stats/${d.id}`, {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${tokenToUse}`
+          },
+          body: JSON.stringify(updatedEntry)
+        });
+      }));
 
       showToast(`Successfully deleted all stats for player ${playerName} permanently.`, "success");
       fetchMatches();
@@ -1339,6 +1340,7 @@ export default function App() {
             {[
               { id: "matches", label: "Match Results", icon: Activity },
               { id: "tournamentStandings", label: "Match Standings", icon: Trophy },
+              { id: "winProbability", label: "Win Probability", icon: Dices },
               { id: "playerStats", label: "Player Stats", icon: Users },
               { id: "rosterManager", label: "Rosters", icon: Award },
               { id: "headTohead", label: "Comparisons", icon: ArrowRightLeft },
@@ -1433,6 +1435,11 @@ export default function App() {
         {/* Tournament Standings tab */}
         {activeTab === "tournamentStandings" && (
           <TournamentStandings matches={matches} isDarkMode={isDarkMode} tournaments={tournaments} />
+        )}
+
+        {/* Win Probability tab - Monte Carlo simulation per tournament/stage */}
+        {activeTab === "winProbability" && (
+          <WinProbability matches={matches} isDarkMode={isDarkMode} tournaments={tournaments} />
         )}
 
         {/* Player Stats Dashboard tab */}

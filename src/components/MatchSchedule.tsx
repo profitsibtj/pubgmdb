@@ -79,18 +79,15 @@ export const MatchSchedule: React.FC<MatchScheduleProps> = ({
   const [isBackfilling, setIsBackfilling] = useState(false);
   const [showUnscheduledList, setShowUnscheduledList] = useState(false);
 
-  // Normalized for comparison only (trimmed + case-insensitive) - a league name typed/edited with
-  // slightly different casing or stray whitespace on one side (e.g. "PMSL SEA 2026 " vs "PMSL SEA
-  // 2026") used to silently fail the exact `===` match below, leaving a match stuck in this list
-  // forever with no visible reason why, even after a schedule genuinely exists for it.
-  const normalizeForMatch = (s?: string) => (s || "").trim().toLowerCase();
-
   // Match results with no corresponding schedule entry (same league + date match used everywhere
-  // else this pairing matters) - candidates for the one-off backfill below.
+  // else this pairing matters) - candidates for the one-off backfill below. Schedules are indexed
+  // into a Set once (keyed on the same normalized league + date pairing sameLeague() checks) so
+  // this stays a single pass over matches instead of rescanning all of schedules per match.
   const matchesWithoutSchedule = useMemo(() => {
-    return matches.filter(m => !schedules.some(s =>
-      normalizeForMatch(s.league) === normalizeForMatch(m.league) && isoToGmt7Parts(s.scheduledAt)?.date === m.date
-    ));
+    const scheduledKeys = new Set(
+      schedules.map(s => `${(s.league || "").trim().toLowerCase()}|${isoToGmt7Parts(s.scheduledAt)?.date || ""}`)
+    );
+    return matches.filter(m => !scheduledKeys.has(`${(m.league || "").trim().toLowerCase()}|${m.date || ""}`));
   }, [matches, schedules]);
 
   const handleBackfillFromMatches = async () => {

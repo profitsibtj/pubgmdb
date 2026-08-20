@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from "react";
 import { Match } from "../types";
-import { calculateLeagueRankStandings, getTournamentTeamList, getTeamGroupMap, canonicalizeTeamName, formatDateDMY } from "../utils";
+import { calculateLeagueRankStandings, getTournamentTeamList, getTeamGroupMap, canonicalizeTeamName, formatDateDMY, getMatchWeekLabel } from "../utils";
 import {
   Trophy, Star, Calendar, Search, BarChart2
 } from "lucide-react";
@@ -34,15 +34,6 @@ export const TournamentStandings: React.FC<TournamentStandingsProps> = ({ matche
     if (viewMode === "survival") return !!match.isSurvivalStage;
     if (viewMode === "lcq") return !!match.isLastChanceQualifier;
     return !match.isGrandFinal && !match.isSurvivalStage && !match.isLastChanceQualifier;
-  };
-
-  // Helper to pull just the Week number out of a matchCode, e.g. "W2D3" -> "Week 2". Returns
-  // null when no week is encoded, so a "Filter Week" control can stay hidden entirely for
-  // tournaments/leagues that don't use a week structure.
-  const getMatchWeek = (match: Match): string | null => {
-    const code = (match.matchCode || "").toUpperCase();
-    const weekMatch = code.match(/W(\d+)/);
-    return weekMatch ? `Week ${weekMatch[1]}` : null;
   };
 
   // Helper to build a unique Week+Day identifier for a match, e.g. matchCode "W2D3" -> "Week 2 - Day 3".
@@ -165,7 +156,7 @@ export const TournamentStandings: React.FC<TournamentStandingsProps> = ({ matche
     const tournamentMatches = matches.filter(m => !m.isDailyStats && m.league === selectedTournament && matchesStageMatch(m));
     const unique = new Set<string>();
     tournamentMatches.forEach(m => {
-      const w = getMatchWeek(m);
+      const w = getMatchWeekLabel(m);
       if (w) unique.add(w);
     });
     if (unique.size === 0) return [];
@@ -183,7 +174,7 @@ export const TournamentStandings: React.FC<TournamentStandingsProps> = ({ matche
       !m.isDailyStats &&
       m.league === selectedTournament &&
       matchesStageMatch(m) &&
-      (selectedWeekFilter === "ALL" || getMatchWeek(m) === selectedWeekFilter)
+      (selectedWeekFilter === "ALL" || getMatchWeekLabel(m) === selectedWeekFilter)
     );
     const unique = new Set<string>();
     tournamentMatches.forEach(m => {
@@ -227,7 +218,7 @@ export const TournamentStandings: React.FC<TournamentStandingsProps> = ({ matche
     const filteredMatches = matches.filter(m => {
       const matchLeague = m.league === selectedTournament;
       const matchMap = selectedMapFilter === "ALL" || m.map === selectedMapFilter;
-      const matchWeek = selectedWeekFilter === "ALL" || getMatchWeek(m) === selectedWeekFilter;
+      const matchWeek = selectedWeekFilter === "ALL" || getMatchWeekLabel(m) === selectedWeekFilter;
       const matchDay = selectedDayFilter === "ALL" || getMatchDay(m) === selectedDayFilter;
       return matchLeague && matchMap && matchWeek && matchDay && matchesStageMatch(m) && !m.isDailyStats;
     });
@@ -432,7 +423,7 @@ export const TournamentStandings: React.FC<TournamentStandingsProps> = ({ matche
     // reached. No config at all means Smash Rule can't determine a target yet.
     const lockAfterGame = Number(currentPreset.smashRuleLockAfterGame) || null;
     if (!lockAfterGame || lockAfterGame < 1) {
-      return { matchPointTarget: null, lockAfterGame: null, totalGamesPlayed, eligibleTeams: new Set<string>(), champion: null, championAtGameIndex: null };
+      return { matchPointTarget: null, lockAfterGame: null, totalGamesPlayed, eligibleTeams: new Set<string>(), eligibleSinceGame: {} as Record<string, number>, champion: null, championAtGameIndex: null };
     }
     const bonus = Number(currentPreset.smashRuleBonus) || 0;
 
@@ -441,6 +432,10 @@ export const TournamentStandings: React.FC<TournamentStandingsProps> = ({ matche
     let champion: string | null = null;
     let championAtGameIndex: number | null = null;
     const eligibleTeams = new Set<string>();
+    // Which game each team's total first met/passed the Match Point target - shown on its "Match
+    // Point" badge (e.g. "M13") so viewers can see when a team actually hit the threshold, not just
+    // that it currently has.
+    const eligibleSinceGame: Record<string, number> = {};
 
     grandFinalGameKeys.forEach((key, idx) => {
       const gameMatches = grandFinalMatchesAll.filter(m => (m.matchCode || "") === key.matchCode && (m.gameNo || "") === key.gameNo);
@@ -480,12 +475,15 @@ export const TournamentStandings: React.FC<TournamentStandingsProps> = ({ matche
       }
       if (matchPointTarget !== null) {
         Object.entries(running).forEach(([name, total]) => {
-          if (total >= matchPointTarget!) eligibleTeams.add(name);
+          if (total >= matchPointTarget! && !eligibleTeams.has(name)) {
+            eligibleTeams.add(name);
+            eligibleSinceGame[name] = gameNumber;
+          }
         });
       }
     });
 
-    return { matchPointTarget, lockAfterGame, totalGamesPlayed, eligibleTeams, champion, championAtGameIndex };
+    return { matchPointTarget, lockAfterGame, totalGamesPlayed, eligibleTeams, eligibleSinceGame, champion, championAtGameIndex };
   }, [currentPreset, grandFinalGameKeys, grandFinalMatchesAll, canonicalizeTeam]);
 
   const championTeamName = useMemo(() => {
@@ -899,7 +897,7 @@ export const TournamentStandings: React.FC<TournamentStandingsProps> = ({ matche
                               )}
                               {viewMode === "final" && smashRuleState?.eligibleTeams.has(team.name) && team.name !== smashRuleState.champion && (
                                 <span className="px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/30 text-amber-500 text-[8px] font-black uppercase tracking-wider whitespace-nowrap">
-                                  ⚡ Match Point
+                                  ⚡ Match Point{smashRuleState.eligibleSinceGame[team.name] ? ` (M${smashRuleState.eligibleSinceGame[team.name]})` : ""}
                                 </span>
                               )}
                             </span>

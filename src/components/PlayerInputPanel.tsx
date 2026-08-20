@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { Match, Team, DailyStatsEntry } from "../types";
 import { RosterPlayer } from "./RosterManager";
-import { getMatchWeekLabel, getTournamentTeamList, canonicalizeTeamName, matchRosterPlayer, formatDateDMY } from "../utils";
+import { getMatchWeekLabel, getTournamentTeamList, canonicalizeTeamName, matchRosterPlayer, formatDateDMY, canonicalCustomKey } from "../utils";
 import {
   Users, Save, RefreshCw, Layers, CheckCircle,
   Plus, Trash2
@@ -484,7 +484,10 @@ export const PlayerInputPanel: React.FC<PlayerInputPanelProps> = ({
       return;
     }
 
-    const key = slugifyColumnLabel(trimmed);
+    // Routed through canonicalCustomKey so re-typing a standard stat's name here (e.g. "Kill",
+    // "Assist", "Knock") lands directly on its real key (elims/assists/knocks) instead of a
+    // look-alike custom_ key that hardcoded readers elsewhere don't recognize - see utils.ts.
+    const key = canonicalCustomKey(slugifyColumnLabel(trimmed), trimmed);
     setColumns(prev => [
       ...prev,
       { key, label: trimmed, type: newColType }

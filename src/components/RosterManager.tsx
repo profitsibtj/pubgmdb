@@ -3,6 +3,7 @@ import {
   Plus, Trash2, Edit2, Sparkles, RefreshCw, X
 } from "lucide-react";
 import { Match } from "../types";
+import { getTournamentTeamList, sameLeague } from "../utils";
 
 export interface RosterPlayer {
   id?: string;
@@ -120,47 +121,13 @@ export const RosterManager: React.FC<RosterManagerProps> = ({
   }, [leagues, selectedLeague, highlightedLeagueName]);
 
   const getTeamsForLeague = React.useCallback((leagueName: string) => {
-    let teamNames: string[] = [];
     const activeTour = tournamentsList.find((t: any) => t.name === leagueName) || tournamentsList[0];
-    
+
     // 1. Extract from tournament preset if available and active matches selection
-    if (activeTour && activeTour.name === leagueName) {
-      if (activeTour.format === "16") {
-        teamNames = (activeTour.teams16Text || "")
-          .split("\n")
-          .map((t: any) => t.trim())
-          .filter((t: any) => t.length > 0);
-      } else {
-        const grpA = (activeTour.groupAText || "").split("\n").map((t: any) => t.trim()).filter((t: any) => t.length > 0);
-        const grpB = (activeTour.groupBText || "").split("\n").map((t: any) => t.trim()).filter((t: any) => t.length > 0);
-        const grpC = (activeTour.groupCText || "").split("\n").map((t: any) => t.trim()).filter((t: any) => t.length > 0);
-        const grpD = (activeTour.groupDText || "").split("\n").map((t: any) => t.trim()).filter((t: any) => t.length > 0);
-        const grpE = (activeTour.groupEText || "").split("\n").map((t: any) => t.trim()).filter((t: any) => t.length > 0);
-        
-        const grpA2 = (activeTour.groupAText_w2 || "").split("\n").map((t: any) => t.trim()).filter((t: any) => t.length > 0);
-        const grpB2 = (activeTour.groupBText_w2 || "").split("\n").map((t: any) => t.trim()).filter((t: any) => t.length > 0);
-        const grpC2 = (activeTour.groupCText_w2 || "").split("\n").map((t: any) => t.trim()).filter((t: any) => t.length > 0);
-        const grpD2 = (activeTour.groupDText_w2 || "").split("\n").map((t: any) => t.trim()).filter((t: any) => t.length > 0);
-        const grpE2 = (activeTour.groupEText_w2 || "").split("\n").map((t: any) => t.trim()).filter((t: any) => t.length > 0);
+    let teamNames: string[] = activeTour && activeTour.name === leagueName ? getTournamentTeamList(activeTour) : [];
 
-        const grpA3 = (activeTour.groupAText_w3 || "").split("\n").map((t: any) => t.trim()).filter((t: any) => t.length > 0);
-        const grpB3 = (activeTour.groupBText_w3 || "").split("\n").map((t: any) => t.trim()).filter((t: any) => t.length > 0);
-        const grpC3 = (activeTour.groupCText_w3 || "").split("\n").map((t: any) => t.trim()).filter((t: any) => t.length > 0);
-        const grpD3 = (activeTour.groupDText_w3 || "").split("\n").map((t: any) => t.trim()).filter((t: any) => t.length > 0);
-        const grpE3 = (activeTour.groupEText_w3 || "").split("\n").map((t: any) => t.trim()).filter((t: any) => t.length > 0);
-
-        teamNames = [
-          ...grpA, ...grpB, ...grpC, ...grpD, ...grpE,
-          ...grpA2, ...grpB2, ...grpC2, ...grpD2, ...grpE2,
-          ...grpA3, ...grpB3, ...grpC3, ...grpD3, ...grpE3
-        ];
-      }
-    }
-    
     // 2. Extract from actual matches under this league
-    const matchingMatches = (matches || []).filter(
-      (m) => m.league && m.league.trim().toLowerCase() === (leagueName || "").trim().toLowerCase()
-    );
+    const matchingMatches = (matches || []).filter((m) => sameLeague(m.league, leagueName));
     matchingMatches.forEach((m) => {
       (m.teams || []).forEach((t) => {
         if (t.name) {
@@ -170,9 +137,7 @@ export const RosterManager: React.FC<RosterManagerProps> = ({
     });
 
     // 3. Extract from existing roster under this league
-    const matchingRoster = roster.filter(
-      (p) => p.league && p.league.trim().toLowerCase() === (leagueName || "").trim().toLowerCase()
-    );
+    const matchingRoster = roster.filter((p) => sameLeague(p.league, leagueName));
     matchingRoster.forEach((p) => {
       if (p.team) {
         teamNames.push(p.team.trim());
