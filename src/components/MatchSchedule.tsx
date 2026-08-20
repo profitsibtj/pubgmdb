@@ -236,6 +236,10 @@ export const MatchSchedule: React.FC<MatchScheduleProps> = ({
           No matches scheduled yet.
         </div>
       ) : (
+        // Capped to roughly 3 rows tall (whether showing just upcoming matches or every finished
+        // one too) and scrolls internally past that, instead of the whole page growing endlessly
+        // long once a league has dozens/hundreds of scheduled or finished entries.
+        <div className="max-h-[620px] overflow-y-auto pr-1">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
           {visible.map(({ entry: s, status, startMs }) => {
             const start = new Date(startMs);
@@ -385,6 +389,7 @@ export const MatchSchedule: React.FC<MatchScheduleProps> = ({
               </div>
             );
           })}
+        </div>
         </div>
       )}
 
