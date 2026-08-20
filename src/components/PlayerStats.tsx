@@ -229,6 +229,30 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
     return !m.isGrandFinal && !m.isSurvivalStage && !m.isLastChanceQualifier;
   }, [selectedStage]);
 
+  // Which stages actually have Daily Stats data recorded for the selected league - "Filter Stage"
+  // only offers ones that do, instead of always listing all four regardless of whether there's
+  // anything behind them.
+  const availableStages = useMemo(() => {
+    if (selectedLeague === "ALL") return [];
+    const stages: { key: "group" | "survival" | "lcq" | "final"; label: string; test: (m: Match) => boolean }[] = [
+      { key: "group", label: "Group Stage", test: (m) => !m.isGrandFinal && !m.isSurvivalStage && !m.isLastChanceQualifier },
+      { key: "survival", label: "Survival Stage", test: (m) => !!m.isSurvivalStage },
+      { key: "lcq", label: "Last Chance Qualifier", test: (m) => !!m.isLastChanceQualifier },
+      { key: "final", label: "Grand Final", test: (m) => !!m.isGrandFinal }
+    ];
+    return stages.filter(({ test }) => matches.some(m =>
+      m.isDailyStats && (m.league || "").trim().toLowerCase() === selectedLeague.toLowerCase() && test(m)
+    ));
+  }, [matches, selectedLeague]);
+
+  // If the currently selected stage has no data for this league (or the league just changed), fall
+  // back to the first stage that actually does.
+  useEffect(() => {
+    if (availableStages.length > 0 && !availableStages.some(s => s.key === selectedStage)) {
+      setSelectedStage(availableStages[0].key);
+    }
+  }, [availableStages]);
+
   // Extract unique teams list that actually played in the selected tournament/league
   const uniqueTeams = useMemo(() => {
     const teamsSet = new Set<string>();
@@ -766,10 +790,13 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
                   : isDarkMode ? "bg-slate-950 border-slate-800 text-white" : "bg-slate-50 border-slate-300 text-slate-900"
               }`}
             >
-              <option value="group">Group Stage</option>
-              <option value="survival">Survival Stage</option>
-              <option value="lcq">Last Chance Qualifier</option>
-              <option value="final">Grand Final</option>
+              {availableStages.length === 0 ? (
+                <option value={selectedStage}>No Stage Data Yet</option>
+              ) : (
+                availableStages.map(s => (
+                  <option key={s.key} value={s.key}>{s.label}</option>
+                ))
+              )}
             </select>
           </div>
 

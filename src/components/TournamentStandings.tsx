@@ -20,6 +20,25 @@ export const TournamentStandings: React.FC<TournamentStandingsProps> = ({ matche
   const [teamSearchTerm, setTeamSearchTerm] = useState<string>("All");
   const [selectedTeamDetail, setSelectedTeamDetail] = useState<string | null>(null);
 
+  // Right column's card is capped to exactly the left standings table's own rendered height
+  // (measured directly, in px) instead of relying on CSS Grid's row-stretch - stretch alone left
+  // the right column free to grow as tall as its own content (a long match history), which then
+  // stretched the LEFT column's card to match and left a dangling empty gap below wherever its
+  // table actually ended. Measuring the left column directly and applying it as an explicit max
+  // height keeps this flexible to team count (16 vs 32 rows) while still bounding the right side.
+  const leftColumnRef = React.useRef<HTMLDivElement>(null);
+  const [leftColumnHeight, setLeftColumnHeight] = useState<number | null>(null);
+  React.useEffect(() => {
+    const el = leftColumnRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver((entries) => {
+      const height = entries[0]?.contentRect.height;
+      if (height) setLeftColumnHeight(height);
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
   // Overall = regular-season standings (everything except Grand Final / Survival Stage / Last
   // Chance Qualifier matches). League = League Rank Points (weekly rank converted to points,
   // accumulated separately) - only available when the tournament preset has this enabled, since
@@ -540,7 +559,7 @@ export const TournamentStandings: React.FC<TournamentStandingsProps> = ({ matche
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         
         {/* Left 2 columns: Standings table & Filter */}
-        <div className="lg:col-span-2 space-y-6">
+        <div ref={leftColumnRef} className="lg:col-span-2 space-y-6">
           <div className={`p-5 rounded-3xl transition-all border ${
             isDarkMode ? "bg-slate-900/50 border-slate-850" : "bg-white border-slate-200 shadow-sm"
           }`}>
@@ -953,15 +972,21 @@ export const TournamentStandings: React.FC<TournamentStandingsProps> = ({ matche
         </div>
 
         {/* Right column: Detailed Team Match-by-Match Logs & Statistics Breakdown.
-            Height tracks the left standings table's actual rendered height (CSS Grid stretches
-            both columns of the same row to match by default) instead of a fixed vh guess, so a
-            16-team lobby's shorter table and a 32-team lobby's taller one both get a right column
-            that reaches exactly as far down as the table does - never over- or under-shooting it.
-            The Match History Log below still scrolls internally (flex-1 min-h-0 overflow-y-auto)
-            for whichever height that ends up being, so a team with a long match history doesn't
-            grow the card past that point either. */}
+            Height is capped to the left standings table's own measured height (leftColumnHeight,
+            via ResizeObserver above) instead of a fixed vh guess or relying on CSS Grid's row-
+            stretch alone - stretch left this column free to grow as tall as its own content (a
+            long match history), which then stretched the LEFT column to match and left a dangling
+            empty gap below wherever its table actually ended. A 16-team lobby's shorter table and a
+            32-team lobby's taller one now both get a right column that reaches exactly as far down
+            as the table does. The Match History Log below still scrolls internally (flex-1 min-h-0
+            overflow-y-auto) within that capped height, so a long match history doesn't grow the
+            card past it either. */}
         <div className="space-y-6">
-          <div className={`p-5 rounded-3xl h-full transition-all flex flex-col justify-between border ${
+          <div
+            style={leftColumnHeight ? { maxHeight: `${leftColumnHeight}px` } : undefined}
+            className={`p-5 rounded-3xl transition-all flex flex-col justify-between border overflow-hidden ${
+              leftColumnHeight ? "" : "h-full"
+            } ${
             isDarkMode ? "bg-slate-900/50 border-slate-850" : "bg-white border-slate-200 shadow-sm"
           }`}>
             <div className="flex flex-col flex-1 min-h-0">
