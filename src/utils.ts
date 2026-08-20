@@ -431,6 +431,12 @@ export interface WinProbabilityResult {
 // (nothing personal to sample from). "Maximum" points assumes every remaining game goes as well as
 // the single best real game recorded so far by ANY team this stage - an empirical ceiling, since
 // PUBG Mobile has no fixed kill cap to derive a theoretical one from.
+//
+// manualTeams: used only when this stage has no real match data recorded yet at all (e.g. a Grand
+// Final that hasn't started) - lets the caller supply the participating team list directly instead
+// of returning nothing. With no history to bootstrap from, every simulated game instead assigns
+// each team a uniformly-random distinct placement (fair since nothing distinguishes them yet),
+// converted to points the same way a real placement would be, plus a modest random kill estimate.
 export const simulateWinProbability = (
   matches: Match[],
   leagueName: string,
@@ -438,7 +444,8 @@ export const simulateWinProbability = (
   totalGames: number,
   canonicalizeName: (rawName: string) => string = (n) => n.trim(),
   smashRule?: { enabled: boolean; lockAfterGame: number | null; bonus: number },
-  simulations: number = 100000
+  simulations: number = 100000,
+  manualTeams?: string[]
 ): WinProbabilityResult[] => {
   const relevantMatches = matches.filter(m => {
     if (m.isDailyStats || !sameLeague(m.league, leagueName)) return false;
@@ -447,7 +454,7 @@ export const simulateWinProbability = (
     if (stage === "lcq") return !!m.isLastChanceQualifier;
     return !m.isGrandFinal && !m.isSurvivalStage && !m.isLastChanceQualifier;
   });
-  if (relevantMatches.length === 0 || !totalGames || totalGames < 1) return [];
+  if (!totalGames || totalGames < 1) return [];
 
   // Distinct games in play order - matchCode+gameNo, not date+gameNo (a postponed match keeps its
   // original Match Code even when played on a later calendar date - see Smash Rule's own note).
@@ -488,11 +495,26 @@ export const simulateWinProbability = (
       });
   });
 
-  if (teamPool.length === 0 || allPointsPool.length === 0) return [];
+  // No real match data recorded for this stage yet - fall back to the manually-supplied team list,
+  // starting everyone at 0 with no history to bootstrap from.
+  let usingManualTeams = false;
+  if (teamPool.length === 0) {
+    const manual = (manualTeams || []).map(t => canonicalizeName(t.trim())).filter(Boolean);
+    if (manual.length < 2) return [];
+    usingManualTeams = true;
+    Array.from(new Set(manual)).forEach(name => {
+      teamHistory[name] = [];
+      teamPool.push(name);
+      currentPoints[name] = 0;
+    });
+  }
 
-  const gamesPlayed = gameKeys.length;
+  const gamesPlayed = usingManualTeams ? 0 : gameKeys.length;
   const remainingGames = Math.max(0, totalGames - gamesPlayed);
-  const maxPointsPerGame = Math.max(...allPointsPool);
+  // With no real games yet, there's no empirical ceiling to draw from - estimate it as a placement-1
+  // finish plus a generous kill count instead (matches the same estimate used to simulate a "no
+  // history" team's games below).
+  const maxPointsPerGame = usingManualTeams ? calculatePlacementPoints(1) + 8 : Math.max(...allPointsPool);
 
   const results: WinProbabilityResult[] = teamPool.map(name => ({
     team: name,
@@ -554,11 +576,23 @@ export const simulateWinProbability = (
       let bestIdx = 0;
       let bestPts = -Infinity;
       const gamePts: number[] = new Array(n);
-      for (let i = 0; i < n; i++) {
-        const pool = histories[i].length > 0 ? histories[i] : allPointsPool;
-        const pts = pool[(Math.random() * pool.length) | 0];
-        gamePts[i] = pts;
-        if (pts > bestPts) { bestPts = pts; bestIdx = i; }
+      if (usingManualTeams) {
+        // Nothing to bootstrap from yet - a fair random placement order per simulated game, same
+        // points formula a real placement would earn, plus a modest random kill estimate (0-8).
+        const order = shuffleArray(teamPool.map((_, i) => i));
+        for (let rank = 0; rank < n; rank++) {
+          const i = order[rank];
+          const pts = calculatePlacementPoints(rank + 1) + Math.floor(Math.random() * 9);
+          gamePts[i] = pts;
+          if (pts > bestPts) { bestPts = pts; bestIdx = i; }
+        }
+      } else {
+        for (let i = 0; i < n; i++) {
+          const pool = histories[i].length > 0 ? histories[i] : allPointsPool;
+          const pts = pool[(Math.random() * pool.length) | 0];
+          gamePts[i] = pts;
+          if (pts > bestPts) { bestPts = pts; bestIdx = i; }
+        }
       }
 
       // A team can only cash in a Match Point threshold it already held BEFORE this game - see the

@@ -237,12 +237,6 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
     smashRuleLockAfterGame?: number;
     smashRuleBonus?: number;
     smashRuleTotalGames?: number;
-    // Win Probability tab: how many total games are scheduled for each stage that isn't Grand
-    // Final (which already has smashRuleTotalGames) - needed to know how many games remain to
-    // simulate from each team's current standing. Undefined hides that stage's win probability.
-    groupStageTotalGames?: number;
-    survivalStageTotalGames?: number;
-    lastChanceQualifierTotalGames?: number;
     // Player Stats' MVP Score column: a weighted sum of "this player's share of the league's total
     // for a stat" per aspect below. Only stats actually tracked via Player Input Panel for this
     // league can be picked (see numericStatOptions). Admin-only to configure, since only admins can
@@ -2084,50 +2078,6 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
                       </div>
                     </div>
                   )}
-
-                  {/* Win Probability tab: total scheduled games per stage, so it knows how many
-                      games remain to simulate from each team's current standing. Grand Final
-                      already has its own "Total Scheduled Games" field above (Smash Rule); these
-                      three cover the other stages. Leaving one blank just hides that stage's tab. */}
-                  <div className="bg-slate-950/20 p-4 rounded-xl border border-slate-850/60 space-y-3">
-                    <label className="text-[10px] font-mono font-bold text-amber-500 uppercase tracking-wider block">Win Probability: Total Games Per Stage</label>
-                    <p className="text-[9px] text-slate-500 -mt-1">(how many games each stage's schedule has in total - used to simulate the remaining ones. Leave blank to hide that stage in Win Probability.)</p>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider block">GROUP STAGE</label>
-                        <input
-                          type="number"
-                          min={1}
-                          value={activeTournament?.groupStageTotalGames || ""}
-                          onChange={(e) => updateActiveTournament({ groupStageTotalGames: Number(e.target.value) || undefined })}
-                          placeholder="e.g. 18"
-                          className={`w-full p-2 rounded-lg text-xs font-mono border focus:outline-none focus:ring-1 focus:ring-amber-500 ${isDarkMode ? "bg-slate-900 border-slate-800 text-slate-100" : "bg-white border-slate-300 text-slate-900"}`}
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider block">SURVIVAL STAGE</label>
-                        <input
-                          type="number"
-                          min={1}
-                          value={activeTournament?.survivalStageTotalGames || ""}
-                          onChange={(e) => updateActiveTournament({ survivalStageTotalGames: Number(e.target.value) || undefined })}
-                          placeholder="e.g. 6"
-                          className={`w-full p-2 rounded-lg text-xs font-mono border focus:outline-none focus:ring-1 focus:ring-amber-500 ${isDarkMode ? "bg-slate-900 border-slate-800 text-slate-100" : "bg-white border-slate-300 text-slate-900"}`}
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider block">LAST CHANCE QUALIFIER</label>
-                        <input
-                          type="number"
-                          min={1}
-                          value={activeTournament?.lastChanceQualifierTotalGames || ""}
-                          onChange={(e) => updateActiveTournament({ lastChanceQualifierTotalGames: Number(e.target.value) || undefined })}
-                          placeholder="e.g. 6"
-                          className={`w-full p-2 rounded-lg text-xs font-mono border focus:outline-none focus:ring-1 focus:ring-amber-500 ${isDarkMode ? "bg-slate-900 border-slate-800 text-slate-100" : "bg-white border-slate-300 text-slate-900"}`}
-                        />
-                      </div>
-                    </div>
-                  </div>
 
                   {/* Player Stats' MVP Score: per-league weighted formula, admin-only since only
                       admins can enter the underlying data (Player Input Panel) anyway. */}

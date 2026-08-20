@@ -1340,9 +1340,9 @@ export default function App() {
             {[
               { id: "matches", label: "Match Results", icon: Activity },
               { id: "tournamentStandings", label: "Match Standings", icon: Trophy },
-              { id: "winProbability", label: "Win Probability", icon: Dices },
               { id: "playerStats", label: "Player Stats", icon: Users },
               { id: "rosterManager", label: "Rosters", icon: Award },
+              { id: "winProbability", label: "Win Probability", icon: Dices },
               { id: "headTohead", label: "Comparisons", icon: ArrowRightLeft },
               { id: "dropZones", label: "Drop Zones", icon: MapPin }
             ].map((tab) => {
