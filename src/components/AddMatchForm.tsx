@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from "react";
 import { Match, Team, DailyStatsEntry, ScheduleEntry } from "../types";
-import { calculatePlacementPoints, calculateLeagueRankStandings, calculateStageStandingsOrder, shuffleArray, getTournamentTeamList, canonicalizeTeamName, canonicalCustomKey, looksLikeTimeValue, gmt7ToIso, isoToGmt7Parts } from "../utils";
+import { calculatePlacementPoints, calculateLeagueRankStandings, calculateStageStandingsOrder, shuffleArray, getTournamentTeamList, canonicalizeTeamName, canonicalCustomKey, looksLikeTimeValue, gmt7ToIso, isoToGmt7Parts, formatDateDMY } from "../utils";
 import {
   Plus, Trash2, RefreshCw, AlertTriangle, Save, GripVertical, Layers,
   ChevronUp, ChevronDown, X, Crown, CalendarClock
@@ -1308,7 +1308,7 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
         !!m.isLastChanceQualifier === isLastChanceQualifier
       );
       if (collision) {
-        throw new Error(`Match "${collision.matchCode}" (${collision.date}, ${collision.time || "no time set"}) already uses Game/Match No ${trimmedGameNo || "(empty)"} for this league/stage. Give this match a different Game/Match No.`);
+        throw new Error(`Match "${collision.matchCode}" (${formatDateDMY(collision.date)}, ${collision.time || "no time set"}) already uses Game/Match No ${trimmedGameNo || "(empty)"} for this league/stage. Give this match a different Game/Match No.`);
       }
 
       // Auto-calculate final values for each team

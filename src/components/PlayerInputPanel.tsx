@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { Match, Team, DailyStatsEntry } from "../types";
 import { RosterPlayer } from "./RosterManager";
-import { getMatchWeekLabel, getTournamentTeamList, canonicalizeTeamName, matchRosterPlayer } from "../utils";
+import { getMatchWeekLabel, getTournamentTeamList, canonicalizeTeamName, matchRosterPlayer, formatDateDMY } from "../utils";
 import {
   Users, Save, RefreshCw, Layers, CheckCircle,
   Plus, Trash2
@@ -264,7 +264,7 @@ export const PlayerInputPanel: React.FC<PlayerInputPanelProps> = ({
         dates.add(m.date);
       }
     });
-    return Array.from(dates).sort((a, b) => b.localeCompare(a)); // Descending
+    return Array.from(dates).sort((a, b) => a.localeCompare(b)); // Ascending - oldest date first
   }, [matches, selectedLeague, matchStageFilter]);
 
   // Extract existing weeks for the selected tournament (only present when matchCodes encode a week)
@@ -280,7 +280,7 @@ export const PlayerInputPanel: React.FC<PlayerInputPanelProps> = ({
     return Array.from(weeks).sort((a, b) => {
       const na = parseInt(a.replace(/\D/g, ""), 10);
       const nb = parseInt(b.replace(/\D/g, ""), 10);
-      return nb - na; // Descending, matching availableDates' most-recent-first order
+      return na - nb; // Ascending, matching availableDates' oldest-first order
     });
   }, [matches, selectedLeague, matchStageFilter]);
 
@@ -323,7 +323,9 @@ export const PlayerInputPanel: React.FC<PlayerInputPanelProps> = ({
         setSelectedDate(pendingDate);
         pendingPresetPeriodRef.current = { ...pendingPresetPeriodRef.current, date: undefined };
       } else {
-        setSelectedDate(availableDates[0]);
+        // availableDates is sorted oldest-first for display - the most recent date (the one an
+        // admin most likely wants to keep entering stats for) is the last entry, not the first.
+        setSelectedDate(availableDates[availableDates.length - 1]);
       }
     } else {
       setSelectedDate("");
@@ -947,7 +949,7 @@ export const PlayerInputPanel: React.FC<PlayerInputPanelProps> = ({
                 >
                   <option value="">-- Select Existing Date --</option>
                   {availableDates.map(d => (
-                    <option key={d} value={d}>{d}</option>
+                    <option key={d} value={d}>{formatDateDMY(d)}</option>
                   ))}
                 </select>
               ) : (

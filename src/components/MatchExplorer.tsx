@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect } from "react";
 import { Match, Team } from "../types";
+import { formatDateDMY } from "../utils";
 import {
   ChevronDown, ChevronUp, Search, Calendar, MapPin, Trash2, Edit2, Play, RefreshCw, Star
 } from "lucide-react";
@@ -208,7 +209,7 @@ export const MatchExplorer: React.FC<MatchExplorerProps> = ({
                   <div className="flex items-center gap-4 min-w-0">
                     <div className="bg-amber-500/10 text-amber-500 p-2.5 rounded-xl border border-amber-500/15 font-bold font-mono text-center shrink-0">
                       <Calendar className="w-4 h-4 mx-auto" />
-                      <span className="text-[9px] block mt-1">{match.date.substring(5)}</span>
+                      <span className="text-[9px] block mt-1">{formatDateDMY(match.date).substring(0, 5)}</span>
                     </div>
                     
                     <div className="min-w-0">

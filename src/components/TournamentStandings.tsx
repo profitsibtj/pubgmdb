@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from "react";
 import { Match } from "../types";
-import { calculateLeagueRankStandings, getTournamentTeamList, getTeamGroupMap, canonicalizeTeamName } from "../utils";
+import { calculateLeagueRankStandings, getTournamentTeamList, getTeamGroupMap, canonicalizeTeamName, formatDateDMY } from "../utils";
 import {
   Trophy, Star, Calendar, Search, BarChart2
 } from "lucide-react";
@@ -59,7 +59,7 @@ export const TournamentStandings: React.FC<TournamentStandingsProps> = ({ matche
       return `Day ${dayMatch[1]}`;
     }
     if (match.date) {
-      return match.date;
+      return formatDateDMY(match.date);
     }
     return "Unknown Day";
   };
@@ -445,13 +445,32 @@ export const TournamentStandings: React.FC<TournamentStandingsProps> = ({ matche
     grandFinalGameKeys.forEach((key, idx) => {
       const gameMatches = grandFinalMatchesAll.filter(m => (m.matchCode || "") === key.matchCode && (m.gameNo || "") === key.gameNo);
       const wwcdTeamsThisGame: string[] = [];
+      const gamePoints: Record<string, number> = {};
       gameMatches.forEach(m => {
         m.teams.forEach(t => {
           const name = canonicalizeTeam(t.name.trim());
           if (!name) return;
-          running[name] = (running[name] || 0) + (Number(t.totalPoints) || 0);
+          gamePoints[name] = (gamePoints[name] || 0) + (Number(t.totalPoints) || 0);
           if (t.placement === 1) wwcdTeamsThisGame.push(name);
         });
+      });
+
+      // A team only becomes "Match Point Eligible" for the matches AFTER the one where it crossed
+      // the threshold (Liquipedia: "that team will become Match Point Eligible for the subsequent
+      // matches") - so the WWCD-while-eligible check below must use eligibleTeams as it stood
+      // BEFORE this game's own points are folded in, not after. Otherwise a team that crosses the
+      // threshold and grabs the WWCD in that exact same game would be wrongly crowned immediately,
+      // when the real rule only lets them cash in starting the next game.
+      if (matchPointTarget !== null && !champion) {
+        const winner = wwcdTeamsThisGame.find(name => eligibleTeams.has(name));
+        if (winner) {
+          champion = winner;
+          championAtGameIndex = idx;
+        }
+      }
+
+      Object.entries(gamePoints).forEach(([name, pts]) => {
+        running[name] = (running[name] || 0) + pts;
       });
 
       const gameNumber = idx + 1;
@@ -463,13 +482,6 @@ export const TournamentStandings: React.FC<TournamentStandingsProps> = ({ matche
         Object.entries(running).forEach(([name, total]) => {
           if (total >= matchPointTarget!) eligibleTeams.add(name);
         });
-        if (!champion) {
-          const winner = wwcdTeamsThisGame.find(name => eligibleTeams.has(name));
-          if (winner) {
-            champion = winner;
-            championAtGameIndex = idx;
-          }
-        }
       }
     });
 
@@ -1067,7 +1079,7 @@ export const TournamentStandings: React.FC<TournamentStandingsProps> = ({ matche
                             </div>
                             <div className="text-[9px] text-slate-500 flex items-center gap-1">
                               <Calendar className="w-3 h-3" />
-                              <span>{hist.date}</span>
+                              <span>{formatDateDMY(hist.date)}</span>
                             </div>
                           </div>
 

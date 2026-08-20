@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { ScheduleEntry, Match } from "../types";
-import { gmt7ToIso, isoToGmt7Parts } from "../utils";
+import { gmt7ToIso, isoToGmt7Parts, formatDateDMY } from "../utils";
 import {
   Trash2, Edit2, Clock, Radio, CheckCircle2, Play, CalendarClock, RefreshCw, Flag, ClipboardList, History, X, Users
 } from "lucide-react";
@@ -217,7 +217,7 @@ export const MatchSchedule: React.FC<MatchScheduleProps> = ({
                 <span className="text-slate-500">•</span>
                 <span>{m.league || "(no league)"}</span>
                 <span className="text-slate-500">•</span>
-                <span>{m.date || "(no date)"}</span>
+                <span>{m.date ? formatDateDMY(m.date) : "(no date)"}</span>
               </div>
             ))}
           </div>

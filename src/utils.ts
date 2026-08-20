@@ -1,5 +1,18 @@
 import { Match } from "./types";
 
+// Displays a stored date as DD-MM-YYYY (the convention used everywhere on this site), matching
+// how the native date input (AddMatchForm) already renders under an id-ID/en-GB locale. Only
+// touches strings that actually look like a stored "YYYY-MM-DD" date - passed through unchanged
+// otherwise, since some callers reuse the same field for a non-date label (e.g. "Week 1",
+// "Sepanjang Turnamen") and those must keep displaying as-is.
+export const formatDateDMY = (dateStr?: string | null): string => {
+  if (!dateStr) return "";
+  const match = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return dateStr;
+  const [, year, month, day] = match;
+  return `${day}-${month}-${year}`;
+};
+
 export const calculatePlacementPoints = (placement: number): number => {
   const p = Number(placement) || 0;
   if (p === 1) return 10;
@@ -55,6 +68,7 @@ const STANDARD_KEY_BY_COMPACT_LABEL: Record<string, string> = {
   damage: "damage",
   assists: "assists", assist: "assists",
   heals: "heals", heal: "heals",
+  knock: "knocks", knocks: "knocks", dbno: "knocks", dbnos: "knocks",
   placementpoints: "placementPoints", placementpoint: "placementPoints",
   wwcd: "wwcdCount", wwcdcount: "wwcdCount",
   error: "error", errors: "error"

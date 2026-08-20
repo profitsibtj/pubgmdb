@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from "react";
 import { Match } from "../types";
-import { calculatePlacementPoints, getTournamentTeamList, canonicalizeTeamName, matchRosterPlayer, canonicalCustomKey, looksLikeTimeValue, remapPlayerCustomKeys, getTeamGroupMap } from "../utils";
+import { calculatePlacementPoints, getTournamentTeamList, canonicalizeTeamName, matchRosterPlayer, canonicalCustomKey, looksLikeTimeValue, remapPlayerCustomKeys, getTeamGroupMap, formatDateDMY } from "../utils";
 import { RosterPlayer } from "./RosterManager";
 import {
   Search, User, Award, Grid, List, Trash2, Lock, ShieldAlert, Pencil, Crown
@@ -269,7 +269,7 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
       } else {
         sortKey = new Date(m.date || "").getTime() || 0;
       }
-      map.set(key, { key, label: m.date || key, sortKey });
+      map.set(key, { key, label: formatDateDMY(m.date) || key, sortKey });
     });
     return Array.from(map.values()).sort((a, b) => a.sortKey - b.sortKey);
   }, [matches, selectedLeague, matchesSelectedStage]);
@@ -646,7 +646,7 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
         isGrandFinal: m.isGrandFinal,
         isSurvivalStage: m.isSurvivalStage,
         isLastChanceQualifier: m.isLastChanceQualifier,
-        label: `${m.league || "-"} • ${stageLabel} • ${m.date || "-"}`
+        label: `${m.league || "-"} • ${stageLabel} • ${m.date ? formatDateDMY(m.date) : "-"}`
       });
     });
     return records;
