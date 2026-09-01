@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from "react";
 import { Match } from "../types";
-import { getTournamentTeamList, canonicalizeTeamName, matchRosterPlayer, remapPlayerCustomKeys } from "../utils";
+import { getTournamentTeamList, canonicalizeTeamName, matchRosterPlayer, remapPlayerCustomKeys, buildGlobalTeamAliasMap, resolveTeamAlias } from "../utils";
 import { RosterPlayer } from "./RosterManager";
 import { Crown, Swords } from "lucide-react";
 
@@ -161,12 +161,18 @@ export const HeadToHead: React.FC<HeadToHeadProps> = ({ matches, isDarkMode, tou
     return map;
   }, [tournaments]);
 
+  // Same roster, different name in another tournament (e.g. world-event sponsor branding) -
+  // resolved globally across every preset, on top of the per-tournament canonicalization below,
+  // so a team's stats stay merged across leagues instead of splitting across both names. See
+  // buildGlobalTeamAliasMap in utils.ts.
+  const globalTeamAliasMap = useMemo(() => buildGlobalTeamAliasMap(tournaments || []), [tournaments]);
+
   const canonicalizeTeamForMatch = React.useCallback((rawName: string, leagueName: string) => {
     const trimmed = (rawName || "").trim();
     const preset = presetsByLeague[(leagueName || "").trim().toLowerCase()];
-    if (!preset) return trimmed;
-    return canonicalizeTeamName(trimmed, getTournamentTeamList(preset), preset.teamAbbreviations);
-  }, [presetsByLeague]);
+    const perTournament = preset ? canonicalizeTeamName(trimmed, getTournamentTeamList(preset), preset.teamAbbreviations) : trimmed;
+    return resolveTeamAlias(perTournament, globalTeamAliasMap);
+  }, [presetsByLeague, globalTeamAliasMap]);
 
   // Process overall stats of teams (aggregated across every match they've played)
   const teamsData = useMemo(() => {

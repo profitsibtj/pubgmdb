@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from "react";
 import { Match } from "../types";
-import { calculatePlacementPoints, getTournamentTeamList, canonicalizeTeamName, matchRosterPlayer, canonicalCustomKey, looksLikeTimeValue, remapPlayerCustomKeys, getTeamGroupMap, formatDateDMY } from "../utils";
+import { calculatePlacementPoints, getTournamentTeamList, canonicalizeTeamName, matchRosterPlayer, canonicalCustomKey, looksLikeTimeValue, remapPlayerCustomKeys, getTeamGroupMap, buildGlobalTeamAliasMap, resolveTeamAlias, getDayLabelForDate } from "../utils";
 import { RosterPlayer } from "./RosterManager";
 import {
   Search, User, Award, Grid, List, Trash2, Lock, ShieldAlert, Pencil, Crown
@@ -191,12 +191,18 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
     return map;
   }, [tournaments]);
 
+  // Same roster, different name in another tournament (e.g. world-event sponsor branding) -
+  // resolved globally across every preset, on top of the per-tournament canonicalization above,
+  // so a team's stats stay merged in cross-league views like "ALL Competitions" instead of
+  // splitting across both names. See buildGlobalTeamAliasMap in utils.ts.
+  const globalTeamAliasMap = useMemo(() => buildGlobalTeamAliasMap(tournaments || []), [tournaments]);
+
   const canonicalizeTeamForMatch = React.useCallback((rawName: string, leagueName: string) => {
     const trimmed = (rawName || "").trim();
     const preset = presetsByLeague[(leagueName || "").trim().toLowerCase()];
-    if (!preset) return trimmed;
-    return canonicalizeTeamName(trimmed, getTournamentTeamList(preset), preset.teamAbbreviations);
-  }, [presetsByLeague]);
+    const perTournament = preset ? canonicalizeTeamName(trimmed, getTournamentTeamList(preset), preset.teamAbbreviations) : trimmed;
+    return resolveTeamAlias(perTournament, globalTeamAliasMap);
+  }, [presetsByLeague, globalTeamAliasMap]);
 
   // Resolves a player name (+ the team it was recorded under) back to the specific roster player
   // it belongs to - reconciling a registered previous nickname back to their current name, and
@@ -285,15 +291,22 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
       // above already guarantees every record reaching this point is the same stage anyway.
       const codeAfterStage = code.replace(/^DAILY_(?:GF_|SS_|LC_)?/, "");
       let sortKey: number;
+      let label: string;
       if (codeAfterStage === "TOURNAMENT") {
         sortKey = Number.MAX_SAFE_INTEGER;
+        label = m.date || key;
       } else if (codeAfterStage.startsWith("WEEK")) {
         const weekMatch = code.match(/WEEK(\d+)/);
         sortKey = weekMatch ? parseInt(weekMatch[1], 10) : 0;
+        label = m.date || key;
       } else {
         sortKey = new Date(m.date || "").getTime() || 0;
+        // A Daily Stats "day" record has no session label of its own (only a calendar date) -
+        // borrow the real match's "Day N" label for that same date, matching how Tournament
+        // Standings' "Filter Day" already shows it, instead of always showing the raw date here.
+        label = m.date ? getDayLabelForDate(m.date, selectedLeague, matches) : key;
       }
-      map.set(key, { key, label: formatDateDMY(m.date) || key, sortKey });
+      map.set(key, { key, label, sortKey });
     });
     return Array.from(map.values()).sort((a, b) => a.sortKey - b.sortKey);
   }, [matches, selectedLeague, matchesSelectedStage]);
@@ -670,7 +683,11 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
         isGrandFinal: m.isGrandFinal,
         isSurvivalStage: m.isSurvivalStage,
         isLastChanceQualifier: m.isLastChanceQualifier,
-        label: `${m.league || "-"} • ${stageLabel} • ${m.date ? formatDateDMY(m.date) : "-"}`
+        label: `${m.league || "-"} • ${stageLabel} • ${
+          isTournamentWide ? "Sepanjang Turnamen" :
+          isWeekRecord ? (m.date || "-") :
+          m.date ? getDayLabelForDate(m.date, m.league || "", matches) : "-"
+        }`
       });
     });
     return records;

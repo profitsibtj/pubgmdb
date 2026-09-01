@@ -14,6 +14,10 @@ export interface RosterPlayer {
   // Old nicknames this player used before a rename, so stats logged under the old name still
   // get reconciled onto this player instead of showing up as a separate person.
   previousNames?: string[];
+  // Display-only reference for admins - lets two different real people who happen to share the
+  // same in-game nickname be told apart at a glance in Squad Roster, without feeding into any
+  // stats-matching logic (name/team/previousNames still drive that, same as before).
+  realName?: string;
 }
 
 interface RosterManagerProps {
@@ -181,8 +185,35 @@ export const RosterManager: React.FC<RosterManagerProps> = ({
     onUpdateTournaments(updated);
   };
 
+  // Other names this same team competes under in OTHER tournaments (e.g. a domestic squad
+  // rebranding as a sponsor's name for a world event) - kept keyed by this team's own properly-
+  // cased name (not uppercased, unlike teamAbbreviations) since it's also the canonical display
+  // name other leagues' aliases resolve back to. See buildGlobalTeamAliasMap in utils.ts.
+  const getTeamAliasMap = React.useCallback((leagueName: string): Record<string, string> => {
+    const preset = tournamentsList.find((t: any) => t.name === leagueName);
+    return (preset && preset.teamAliases) || {};
+  }, [tournamentsList]);
+
+  const handleTeamAliasChange = (leagueName: string, teamName: string, aliasListStr: string) => {
+    if (!onUpdateTournaments || !teamName.trim()) return;
+    const trimmed = aliasListStr.trim();
+    const updated = tournamentsList.map((t: any) => {
+      if (t.name !== leagueName) return t;
+      const nextAliases = { ...(t.teamAliases || {}) };
+      if (trimmed) {
+        nextAliases[teamName] = trimmed;
+      } else {
+        delete nextAliases[teamName];
+      }
+      return { ...t, teamAliases: nextAliases };
+    });
+    onUpdateTournaments(updated);
+  };
+
   // Team ABBR input, live in the Add/Edit Player form
   const [abbrInput, setAbbrInput] = useState("");
+  // Comma-separated "also known as" names, live in the Add/Edit Player form
+  const [aliasInput, setAliasInput] = useState("");
 
   // Comma-separated old nicknames, edited as free text and parsed into an array on submit
   const [previousNamesInput, setPreviousNamesInput] = useState("");
@@ -213,6 +244,7 @@ export const RosterManager: React.FC<RosterManagerProps> = ({
 
     setForm({ ...player });
     setAbbrInput(getTeamAbbrMap(player.league)[(player.team || "").toUpperCase().trim()] || "");
+    setAliasInput(getTeamAliasMap(player.league)[(player.team || "").trim()] || "");
     setPreviousNamesInput((player.previousNames || []).join(", "));
     setIsFormOpen(true);
   };
@@ -251,6 +283,7 @@ export const RosterManager: React.FC<RosterManagerProps> = ({
       await onSavePlayer({ ...form, name: trimmedName, previousNames });
       if (form.team.trim()) {
         handleTeamAbbrChange(form.league, form.team.toUpperCase().trim(), abbrInput);
+        handleTeamAliasChange(form.league, form.team.trim(), aliasInput);
       }
       setIsFormOpen(false);
       setEditingPlayer(null);
@@ -453,6 +486,17 @@ export const RosterManager: React.FC<RosterManagerProps> = ({
                     className={`flex-1 rounded-lg p-1.5 text-xs focus:outline-none border focus:ring-1 focus:ring-amber-500 ${isDarkMode ? "bg-slate-900 border-slate-800 text-slate-300" : "bg-slate-50 border-slate-200 text-slate-700"}`}
                   />
                 </div>
+                <div className="flex items-center gap-2 pt-1">
+                  <span className="text-[9px] text-slate-500 uppercase font-bold shrink-0">Real Name:</span>
+                  <input
+                    type="text"
+                    value={form.realName || ""}
+                    onChange={(e) => setForm(prev => ({ ...prev, realName: e.target.value }))}
+                    placeholder="e.g. actual full name"
+                    title="Display-only reference to tell apart two different real people who happen to share the same nickname - doesn't affect stats matching"
+                    className={`flex-1 rounded-lg p-1.5 text-xs focus:outline-none border focus:ring-1 focus:ring-amber-500 ${isDarkMode ? "bg-slate-900 border-slate-800 text-slate-300" : "bg-slate-50 border-slate-200 text-slate-700"}`}
+                  />
+                </div>
               </div>
 
               <div className="space-y-1.5">
@@ -486,6 +530,7 @@ export const RosterManager: React.FC<RosterManagerProps> = ({
                         } else {
                           setForm(prev => ({ ...prev, team: e.target.value }));
                           setAbbrInput(getTeamAbbrMap(form.league)[e.target.value.toUpperCase().trim()] || "");
+                          setAliasInput(getTeamAliasMap(form.league)[e.target.value.trim()] || "");
                         }
                       }}
                       className={`flex-1 rounded-lg p-2.5 text-sm focus:outline-none border focus:ring-1 focus:ring-amber-500 cursor-pointer ${isDarkMode ? "bg-slate-900 border-slate-800 text-slate-100" : "bg-slate-50 border-slate-200 text-slate-900"}`}
@@ -508,6 +553,18 @@ export const RosterManager: React.FC<RosterManagerProps> = ({
                       maxLength={6}
                       placeholder="e.g. BTR"
                       className={`w-24 rounded-lg p-1.5 text-xs uppercase font-bold focus:outline-none border focus:ring-1 focus:ring-amber-500 ${isDarkMode ? "bg-slate-900 border-slate-800 text-amber-500" : "bg-slate-50 border-slate-200 text-amber-600"}`}
+                    />
+                  </div>
+                )}
+                {form.team.trim() && (
+                  <div className="flex items-center gap-2 pt-1">
+                    <span className="text-[9px] text-slate-500 uppercase font-bold shrink-0" title="This same roster competing under a different name in another tournament (e.g. a world event's sponsor branding) - merges that team's stats together in Player Stats/Comparisons.">Also Known As:</span>
+                    <input
+                      type="text"
+                      value={aliasInput}
+                      onChange={(e) => setAliasInput(e.target.value)}
+                      placeholder="e.g. Team Vitality, BOOM x Vitality"
+                      className={`flex-1 rounded-lg p-1.5 text-xs font-semibold focus:outline-none border focus:ring-1 focus:ring-amber-500 ${isDarkMode ? "bg-slate-900 border-slate-800 text-slate-100" : "bg-slate-50 border-slate-200 text-slate-900"}`}
                     />
                   </div>
                 )}
@@ -537,6 +594,7 @@ export const RosterManager: React.FC<RosterManagerProps> = ({
                     setForm(prev => ({ ...prev, league: newLeague, team: "Netral" }));
                     setUseCustomTeam(false);
                     setAbbrInput("");
+                    setAliasInput("");
                   }}
                   className={`w-full rounded-lg p-2.5 text-sm focus:outline-none border focus:ring-1 focus:ring-amber-500 cursor-pointer ${isDarkMode ? "bg-slate-900 border-slate-800 text-slate-100" : "bg-slate-50 border-slate-200 text-slate-900"}`}
                   required
@@ -825,6 +883,9 @@ export const RosterManager: React.FC<RosterManagerProps> = ({
                                 <h3 className={`font-bold truncate ${isDarkMode ? "text-slate-100" : "text-slate-900"}`}>
                                   {p.name}
                                 </h3>
+                                {p.realName && (
+                                  <p className="text-[9px] text-slate-500 truncate" title="Real name">{p.realName}</p>
+                                )}
                                 <p className="text-[10px] text-amber-500 font-semibold mt-0.5 tracking-wide uppercase">
                                   {p.role}
                                 </p>

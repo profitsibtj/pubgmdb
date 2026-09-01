@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from "react";
 import { Match } from "../types";
-import { calculateLeagueRankStandings, getTournamentTeamList, getTeamGroupMap, canonicalizeTeamName, formatDateDMY, getMatchWeekLabel } from "../utils";
+import { calculateLeagueRankStandings, getTournamentTeamList, getTeamGroupMap, canonicalizeTeamName, formatDateDMY, getMatchWeekLabel, parseMatchCodeDayLabel } from "../utils";
 import {
   Trophy, Star, Calendar, Search, BarChart2
 } from "lucide-react";
@@ -56,22 +56,8 @@ export const TournamentStandings: React.FC<TournamentStandingsProps> = ({ matche
   };
 
   // Helper to build a unique Week+Day identifier for a match, e.g. matchCode "W2D3" -> "Week 2 - Day 3".
-  // Matching on Day alone would collide across weeks (W1D1 and W2D1 both being "Day 1"), so week is
-  // always included when available.
   const getMatchDay = (match: Match): string => {
-    const code = (match.matchCode || "").toUpperCase();
-    const weekMatch = code.match(/W(\d+)/);
-    const dayMatch = code.match(/\bD(\d+)\b/) || code.match(/D(\d+)/) || code.match(/DAY\s*(\d+)/);
-    if (weekMatch && dayMatch) {
-      return `Week ${weekMatch[1]} - Day ${dayMatch[1]}`;
-    }
-    if (dayMatch) {
-      return `Day ${dayMatch[1]}`;
-    }
-    if (match.date) {
-      return formatDateDMY(match.date);
-    }
-    return "Unknown Day";
+    return parseMatchCodeDayLabel(match.matchCode) || (match.date ? formatDateDMY(match.date) : "Unknown Day");
   };
 
   // Load tournament presets to read the configured tiebreakers

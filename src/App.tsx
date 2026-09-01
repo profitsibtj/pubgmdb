@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import {
-  Activity, Users, ArrowRightLeft, PlusCircle, LogOut, Sun, Moon, Lock, Award, Trophy, MapPin, Dices
+  Activity, Users, ArrowRightLeft, PlusCircle, LogOut, Sun, Moon, Lock, Award, Trophy, MapPin
 } from "lucide-react";
 import { Match, ScheduleEntry, DailyStatsEntry } from "./types";
 import { AuthScreen } from "./components/AuthScreen";
@@ -11,7 +11,6 @@ import { HeadToHead } from "./components/HeadToHead";
 import { RosterManager, RosterPlayer } from "./components/RosterManager";
 import { PlayerInputPanel } from "./components/PlayerInputPanel";
 import { TournamentStandings } from "./components/TournamentStandings";
-import { WinProbability } from "./components/WinProbability";
 import { DropZoneSimulator } from "./components/DropZoneSimulator";
 import { MatchSchedule } from "./components/MatchSchedule";
 import { clientDb } from "./firebaseClient";
@@ -1342,7 +1341,6 @@ export default function App() {
               { id: "tournamentStandings", label: "Match Standings", icon: Trophy },
               { id: "playerStats", label: "Player Stats", icon: Users },
               { id: "rosterManager", label: "Rosters", icon: Award },
-              { id: "winProbability", label: "Win Probability", icon: Dices },
               { id: "headTohead", label: "Comparisons", icon: ArrowRightLeft },
               { id: "dropZones", label: "Drop Zones", icon: MapPin }
             ].map((tab) => {
@@ -1435,11 +1433,6 @@ export default function App() {
         {/* Tournament Standings tab */}
         {activeTab === "tournamentStandings" && (
           <TournamentStandings matches={matches} isDarkMode={isDarkMode} tournaments={tournaments} />
-        )}
-
-        {/* Win Probability tab - Monte Carlo simulation per tournament/stage */}
-        {activeTab === "winProbability" && (
-          <WinProbability matches={matches} isDarkMode={isDarkMode} tournaments={tournaments} />
         )}
 
         {/* Player Stats Dashboard tab */}

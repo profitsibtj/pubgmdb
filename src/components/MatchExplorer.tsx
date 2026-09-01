@@ -179,6 +179,10 @@ export const MatchExplorer: React.FC<MatchExplorerProps> = ({
           No match records found.
         </div>
       ) : (
+        // Capped to roughly 25 collapsed match cards tall and scrolls internally past that,
+        // instead of the whole page growing endlessly long once a league has hundreds of
+        // recorded matches.
+        <div className="max-h-[2500px] overflow-y-auto pr-1">
         <div className="space-y-4">
           {filteredMatches.map((match) => {
             const matchId = match.id || "";
@@ -397,6 +401,7 @@ export const MatchExplorer: React.FC<MatchExplorerProps> = ({
               </div>
             );
           })}
+        </div>
         </div>
       )}
 

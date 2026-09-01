@@ -90,6 +90,13 @@ export const MatchSchedule: React.FC<MatchScheduleProps> = ({
     return matches.filter(m => !scheduledKeys.has(`${(m.league || "").trim().toLowerCase()}|${m.date || ""}`));
   }, [matches, schedules]);
 
+  // "league|date" keys that have an actual Match result recorded - tells a Finished entry with
+  // real results apart from one only flagged via "Mark as Finished" (no result ever entered), so
+  // the latter can still offer "Enter Match Result" instead of a dead click with no explanation.
+  const matchResultKeys = useMemo(() => {
+    return new Set(matches.filter(m => !m.isDailyStats).map(m => `${(m.league || "").trim().toLowerCase()}|${m.date || ""}`));
+  }, [matches]);
+
   const handleBackfillFromMatches = async () => {
     if (matchesWithoutSchedule.length === 0 || !backfillTime) return;
     setIsBackfilling(true);
@@ -239,13 +246,14 @@ export const MatchSchedule: React.FC<MatchScheduleProps> = ({
         // Capped to roughly 3 rows tall (whether showing just upcoming matches or every finished
         // one too) and scrolls internally past that, instead of the whole page growing endlessly
         // long once a league has dozens/hundreds of scheduled or finished entries.
-        <div className="max-h-[620px] overflow-y-auto pr-1">
+        <div className="max-h-[380px] overflow-y-auto pr-1">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
           {visible.map(({ entry: s, status, startMs }) => {
             const start = new Date(startMs);
             const validStart = startMs > 0;
 
-            const isViewable = status === "finished" && !!onViewMatch;
+            const hasMatchResult = matchResultKeys.has(`${(s.league || "").trim().toLowerCase()}|${isoToGmt7Parts(s.scheduledAt)?.date || ""}`);
+            const isViewable = status === "finished" && hasMatchResult && !!onViewMatch;
             const hasLineup = status !== "finished" && (s.teams || []).length > 0;
             const isClickable = isViewable || hasLineup;
 
@@ -276,7 +284,7 @@ export const MatchSchedule: React.FC<MatchScheduleProps> = ({
                     </div>
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1.5 text-[10px] text-slate-500">
                       {validStart && (
-                        <span>{start.toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
+                        <span>{start.toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false })}</span>
                       )}
                       {s.map && (
                         <>
@@ -311,7 +319,11 @@ export const MatchSchedule: React.FC<MatchScheduleProps> = ({
                       <div className="px-2.5 py-1.5 rounded-xl bg-slate-800/50 border border-slate-800 text-slate-400 flex items-center gap-1.5 font-bold text-[10px]">
                         <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
                         Finished
-                        {isViewable && <span className="text-amber-500 normal-case font-semibold">· View match</span>}
+                        {isViewable ? (
+                          <span className="text-amber-500 normal-case font-semibold">· View match</span>
+                        ) : (
+                          <span className="text-red-400 normal-case font-semibold">· No result entered yet</span>
+                        )}
                       </div>
                     )}
                   </div>
@@ -340,11 +352,15 @@ export const MatchSchedule: React.FC<MatchScheduleProps> = ({
 
                   {actionPasswordVerified && (
                     <div className="flex items-center gap-1.5">
-                      {status !== "finished" && onEnterResults && (
+                      {(status !== "finished" || !hasMatchResult) && onEnterResults && (
                         <button
                           type="button"
                           onClick={() => onEnterResults(s)}
-                          title="Opens Add New Match Data with this entry's league/map/date already filled in - saving it auto-marks this schedule Finished"
+                          title={
+                            status === "finished"
+                              ? "This was marked Finished without ever entering a result - opens Add New Match Data with this entry's league/map/date already filled in"
+                              : "Opens Add New Match Data with this entry's league/map/date already filled in - saving it auto-marks this schedule Finished"
+                          }
                           className="px-2.5 py-1.5 rounded-lg border text-[10px] font-bold cursor-pointer transition-all flex items-center gap-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 border-amber-500/20"
                         >
                           <ClipboardList className="w-3 h-3 shrink-0" />

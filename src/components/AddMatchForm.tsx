@@ -249,6 +249,12 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
     // Registered team ABBR -> full team name (set in Squad Roster), used to auto-correct an
     // abbreviation typed for a Schedule entry's teams back to the full registered name.
     teamAbbreviations?: Record<string, string>;
+    // Canonical team name (as used in THIS tournament) -> comma-separated list of other names
+    // that same roster competes under in OTHER tournaments (set in Squad Roster) - e.g. this
+    // preset's "Bigetron by Vitality" also playing as "Team Vitality" at a world event. Used to
+    // merge that team's stats across leagues in Player Stats/Comparisons - see
+    // buildGlobalTeamAliasMap in utils.ts.
+    teamAliases?: Record<string, string>;
     // Not every tournament tracks player stats at both granularities - each is independently opt-in.
     // Missing/undefined defaults to day-only (matches pre-existing behavior for older presets).
     playerStatsDayEnabled?: boolean;

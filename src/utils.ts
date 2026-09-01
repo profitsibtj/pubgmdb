@@ -148,6 +148,30 @@ export const getMatchWeekLabel = (match: Match): string | null => {
   return weekMatch ? `Week ${weekMatch[1]}` : null;
 };
 
+// Parses "Day N" / "Week N - Day N" out of a matchCode like "D8" or "W2D3" - the session-label
+// convention Tournament Standings' "Filter Day" already uses. Week is only included alongside Day
+// when both are present, since Day alone would otherwise collide across weeks (W1D1 and W2D1 both
+// reading as "Day 1"). Returns null when the matchCode doesn't encode a day number at all.
+export const parseMatchCodeDayLabel = (matchCode?: string | null): string | null => {
+  const code = (matchCode || "").toUpperCase();
+  const weekMatch = code.match(/W(\d+)/);
+  const dayMatch = code.match(/\bD(\d+)\b/) || code.match(/D(\d+)/) || code.match(/DAY\s*(\d+)/);
+  if (weekMatch && dayMatch) return `Week ${weekMatch[1]} - Day ${dayMatch[1]}`;
+  if (dayMatch) return `Day ${dayMatch[1]}`;
+  return null;
+};
+
+// A Daily Stats record (Player Input Panel) is only ever keyed by calendar date, with no
+// matchCode/session-label of its own - so a "day" period there would otherwise always show a raw
+// date, inconsistent with Standings' "Day N" labels for the exact same real day. Finds a real
+// match (not Daily Stats) in the same league on that date and borrows its Day/Week-Day label;
+// falls back to the formatted date itself if no such match exists (e.g. stats logged for a day
+// whose match result hasn't been entered yet).
+export const getDayLabelForDate = (dateStr: string, leagueName: string, allMatches: Match[]): string => {
+  const realMatch = allMatches.find(m => !m.isDailyStats && sameLeague(m.league, leagueName) && m.date === dateStr);
+  return parseMatchCodeDayLabel(realMatch?.matchCode) || formatDateDMY(dateStr) || dateStr;
+};
+
 // Extracts the canonical list of team names configured for a tournament preset (format-aware:
 // single 16-team lobby vs the grouped formats' A-E group lists across all weeks), used to
 // reconcile team-name variants (e.g. an abbreviation typed instead of the full name) back to one
@@ -190,6 +214,38 @@ export const getTeamGroupMap = (preset: any): Record<string, string> => {
     });
   });
   return map;
+};
+
+// Some teams compete under an entirely different name in another tournament - e.g. a domestic
+// squad rebranding as a sponsor's name for a world event ("Bigetron by Vitality" -> "Team
+// Vitality") - same roster, different branding per competition. teamAliases (set per-team in
+// Squad Roster, on whichever tournament preset that team's "home"/canonical name belongs to) is
+// a canonical name -> comma-separated list of the other names it's also known by. Union every
+// preset's teamAliases into one global "any known alias -> canonical name" lookup, so a
+// cross-league view (Player Stats "ALL Competitions", Comparisons) recognizes it's the same team
+// instead of splitting its stats across both names. Unlike teamAbbreviations (per-tournament,
+// used to autocorrect a typed abbreviation back to that SAME tournament's own team list), this
+// deliberately spans every tournament preset at once.
+export const buildGlobalTeamAliasMap = (presets: any[]): Record<string, string> => {
+  const map: Record<string, string> = {};
+  (presets || []).forEach(preset => {
+    const aliases: Record<string, string> | undefined = preset?.teamAliases;
+    if (!aliases) return;
+    Object.entries(aliases).forEach(([canonicalName, aliasListStr]) => {
+      (aliasListStr || "").split(",").map(a => a.trim()).filter(Boolean).forEach(alias => {
+        map[alias.toUpperCase()] = canonicalName;
+      });
+    });
+  });
+  return map;
+};
+
+// Applies the global alias lookup above - a name matching a known alias resolves to its
+// canonical form; anything else passes through unchanged.
+export const resolveTeamAlias = (name: string, aliasMap: Record<string, string>): string => {
+  const trimmed = (name || "").trim();
+  if (!trimmed) return trimmed;
+  return aliasMap[trimmed.toUpperCase()] || trimmed;
 };
 
 // Reconciles a raw team-name string (which may be an abbreviation, or differently-cased entry)
@@ -413,242 +469,6 @@ export const calculateStageStandingsOrder = (
       return a.matchesPlayed - b.matchesPlayed;
     })
     .map(([name]) => name);
-};
-
-export interface WinProbabilityResult {
-  team: string;
-  gamesPlayed: number;
-  currentPoints: number;
-  maxPoints: number;
-  winProbability: number; // 0-100, two decimal places
-}
-
-// Monte Carlo win probability for a stage's remaining games. Each simulated game, a team's score
-// is bootstrap-resampled (drawn with replacement) from its OWN real per-game results so far this
-// stage - a team that's been performing consistently well keeps a proportionally higher chance of
-// doing so again, instead of every team being treated as equally likely regardless of form so far.
-// A team with no real games yet in this stage draws from the whole stage's pooled results instead
-// (nothing personal to sample from). "Maximum" points assumes every remaining game goes as well as
-// the single best real game recorded so far by ANY team this stage - an empirical ceiling, since
-// PUBG Mobile has no fixed kill cap to derive a theoretical one from.
-//
-// manualTeams: used only when this stage has no real match data recorded yet at all (e.g. a Grand
-// Final that hasn't started) - lets the caller supply the participating team list directly instead
-// of returning nothing. With no history to bootstrap from, every simulated game instead assigns
-// each team a uniformly-random distinct placement (fair since nothing distinguishes them yet),
-// converted to points the same way a real placement would be, plus a modest random kill estimate.
-export const simulateWinProbability = (
-  matches: Match[],
-  leagueName: string,
-  stage: "group" | "survival" | "lcq" | "final",
-  totalGames: number,
-  canonicalizeName: (rawName: string) => string = (n) => n.trim(),
-  smashRule?: { enabled: boolean; lockAfterGame: number | null; bonus: number },
-  simulations: number = 100000,
-  manualTeams?: string[],
-  startingBonus?: Record<string, number>
-): WinProbabilityResult[] => {
-  const relevantMatches = matches.filter(m => {
-    if (m.isDailyStats || !sameLeague(m.league, leagueName)) return false;
-    if (stage === "final") return !!m.isGrandFinal;
-    if (stage === "survival") return !!m.isSurvivalStage;
-    if (stage === "lcq") return !!m.isLastChanceQualifier;
-    return !m.isGrandFinal && !m.isSurvivalStage && !m.isLastChanceQualifier;
-  });
-  if (!totalGames || totalGames < 1) return [];
-
-  // Distinct games in play order - matchCode+gameNo, not date+gameNo (a postponed match keeps its
-  // original Match Code even when played on a later calendar date - see Smash Rule's own note).
-  const gameKeyMap = new Map<string, { matchCode: string; gameNo: string; date: string; time: string }>();
-  relevantMatches.forEach(m => {
-    const key = `${m.matchCode || ""}__${m.gameNo || ""}`;
-    if (!gameKeyMap.has(key)) gameKeyMap.set(key, { matchCode: m.matchCode || "", gameNo: m.gameNo || "", date: m.date, time: m.time || "" });
-  });
-  const timeToMinutes = (t: string): number => {
-    if (!t) return Number.MAX_SAFE_INTEGER;
-    const parts = t.split(":").map(n => parseInt(n, 10));
-    if (parts.some(n => Number.isNaN(n))) return Number.MAX_SAFE_INTEGER;
-    return parts[0] * 60 + (parts[1] || 0);
-  };
-  const gameKeys = Array.from(gameKeyMap.values()).sort((a, b) => {
-    if (a.date !== b.date) return a.date.localeCompare(b.date);
-    return timeToMinutes(a.time) - timeToMinutes(b.time);
-  });
-
-  const teamPool: string[] = [];
-  const teamHistory: Record<string, number[]> = {};
-  const allPointsPool: number[] = [];
-  const currentPoints: Record<string, number> = {};
-
-  gameKeys.forEach(key => {
-    relevantMatches
-      .filter(m => (m.matchCode || "") === key.matchCode && (m.gameNo || "") === key.gameNo)
-      .forEach(m => {
-        m.teams.forEach(t => {
-          const name = canonicalizeName(t.name.trim());
-          if (!name) return;
-          const pts = Number(t.totalPoints) || 0;
-          if (!teamHistory[name]) { teamHistory[name] = []; teamPool.push(name); currentPoints[name] = 0; }
-          teamHistory[name].push(pts);
-          allPointsPool.push(pts);
-          currentPoints[name] += pts;
-        });
-      });
-  });
-
-  // No real match data recorded for this stage yet - fall back to the manually-supplied team list,
-  // starting everyone at 0 with no history to bootstrap from.
-  let usingManualTeams = false;
-  if (teamPool.length === 0) {
-    const manual = (manualTeams || []).map(t => canonicalizeName(t.trim())).filter(Boolean);
-    if (manual.length < 2) return [];
-    usingManualTeams = true;
-    Array.from(new Set(manual)).forEach(name => {
-      teamHistory[name] = [];
-      teamPool.push(name);
-      currentPoints[name] = 0;
-    });
-  }
-
-  // A one-time starting bonus (e.g. Grand Final's, entered once in Tournament Settings - see
-  // grandFinalBonusByTeam) applied on top of each team's baseline exactly once, the same way
-  // Standings folds it into the real total - works whether that baseline came from real match
-  // history or the manual team list (a fresh Grand Final that hasn't started yet still has a
-  // seeded bonus to simulate from).
-  if (startingBonus) {
-    Object.entries(startingBonus).forEach(([rawName, bonus]) => {
-      const name = canonicalizeName(rawName.trim());
-      if (!name || !(name in currentPoints)) return;
-      currentPoints[name] += Number(bonus) || 0;
-    });
-  }
-
-  const gamesPlayed = usingManualTeams ? 0 : gameKeys.length;
-  const remainingGames = Math.max(0, totalGames - gamesPlayed);
-  // With no real games yet, there's no empirical ceiling to draw from - estimate it as a placement-1
-  // finish plus a generous kill count instead (matches the same estimate used to simulate a "no
-  // history" team's games below).
-  const maxPointsPerGame = usingManualTeams ? calculatePlacementPoints(1) + 8 : Math.max(...allPointsPool);
-
-  const results: WinProbabilityResult[] = teamPool.map(name => ({
-    team: name,
-    gamesPlayed,
-    currentPoints: currentPoints[name],
-    maxPoints: currentPoints[name] + maxPointsPerGame * remainingGames,
-    winProbability: 0
-  }));
-
-  const n = teamPool.length;
-
-  // No games left to simulate - today's leader (or whoever already smashed for real) is the
-  // deterministic winner, no Monte Carlo needed.
-  if (remainingGames === 0) {
-    let winnerIdx = 0;
-    for (let i = 1; i < n; i++) if (results[i].currentPoints > results[winnerIdx].currentPoints) winnerIdx = i;
-    results[winnerIdx].winProbability = 100;
-    return results.sort((a, b) => b.currentPoints - a.currentPoints);
-  }
-
-  // If the Smash Rule's lock-in game has already been played for real, replay up to it to find the
-  // real Match Point target and who's already eligible, so simulations continue from today's actual
-  // state instead of re-locking a target from a simulated game that never happens.
-  let realMatchPointTarget: number | null = null;
-  const realEligible = new Set<string>();
-  const useSmash = stage === "final" && !!smashRule?.enabled && !!smashRule.lockAfterGame && smashRule.lockAfterGame >= 1;
-  if (useSmash && gamesPlayed >= (smashRule!.lockAfterGame as number)) {
-    // Seeded with the same one-time starting bonus already folded into currentPoints, so the real
-    // Match Point target lines up with the bonus-inclusive totals Standings shows.
-    const runningAtLock: Record<string, number> = {};
-    if (startingBonus) {
-      Object.entries(startingBonus).forEach(([rawName, teamBonus]) => {
-        const name = canonicalizeName(rawName.trim());
-        if (!name) return;
-        runningAtLock[name] = (runningAtLock[name] || 0) + (Number(teamBonus) || 0);
-      });
-    }
-    for (let g = 0; g < (smashRule!.lockAfterGame as number); g++) {
-      const key = gameKeys[g];
-      relevantMatches.filter(m => (m.matchCode || "") === key.matchCode && (m.gameNo || "") === key.gameNo).forEach(m => {
-        m.teams.forEach(t => {
-          const name = canonicalizeName(t.name.trim());
-          if (!name) return;
-          runningAtLock[name] = (runningAtLock[name] || 0) + (Number(t.totalPoints) || 0);
-        });
-      });
-    }
-    realMatchPointTarget = (Object.values(runningAtLock).length > 0 ? Math.max(...Object.values(runningAtLock)) : 0) + (smashRule!.bonus || 0);
-    teamPool.forEach(name => { if (currentPoints[name] >= realMatchPointTarget!) realEligible.add(name); });
-  }
-
-  const histories = teamPool.map(name => teamHistory[name]);
-  const startTotals = teamPool.map(name => currentPoints[name]);
-  const startEligible = teamPool.map(name => realEligible.has(name));
-  // Which simulated game (1-indexed among the remaining ones) locks the target, if it hasn't
-  // locked in reality yet.
-  const lockGameOffset = useSmash ? (smashRule!.lockAfterGame as number) - gamesPlayed : -1;
-
-  const wins = new Array(n).fill(0);
-
-  for (let s = 0; s < simulations; s++) {
-    const totals = startTotals.slice();
-    const eligible = startEligible.slice();
-    let target = realMatchPointTarget;
-    let champion = -1;
-
-    for (let g = 1; g <= remainingGames; g++) {
-      let bestIdx = 0;
-      let bestPts = -Infinity;
-      const gamePts: number[] = new Array(n);
-      if (usingManualTeams) {
-        // Nothing to bootstrap from yet - a fair random placement order per simulated game, same
-        // points formula a real placement would earn, plus a modest random kill estimate (0-8).
-        const order = shuffleArray(teamPool.map((_, i) => i));
-        for (let rank = 0; rank < n; rank++) {
-          const i = order[rank];
-          const pts = calculatePlacementPoints(rank + 1) + Math.floor(Math.random() * 9);
-          gamePts[i] = pts;
-          if (pts > bestPts) { bestPts = pts; bestIdx = i; }
-        }
-      } else {
-        for (let i = 0; i < n; i++) {
-          const pool = histories[i].length > 0 ? histories[i] : allPointsPool;
-          const pts = pool[(Math.random() * pool.length) | 0];
-          gamePts[i] = pts;
-          if (pts > bestPts) { bestPts = pts; bestIdx = i; }
-        }
-      }
-
-      // A team can only cash in a Match Point threshold it already held BEFORE this game - see the
-      // same "eligible for subsequent matches" timing fix applied to the real Smash Rule state.
-      if (useSmash && target !== null && champion === -1 && eligible[bestIdx]) {
-        champion = bestIdx;
-        break;
-      }
-
-      for (let i = 0; i < n; i++) totals[i] += gamePts[i];
-
-      if (useSmash && target === null && g === lockGameOffset) {
-        let leader = -Infinity;
-        for (let i = 0; i < n; i++) if (totals[i] > leader) leader = totals[i];
-        target = leader + (smashRule!.bonus || 0);
-      }
-      if (useSmash && target !== null) {
-        for (let i = 0; i < n; i++) if (totals[i] >= target!) eligible[i] = true;
-      }
-    }
-
-    if (champion === -1) {
-      champion = 0;
-      for (let i = 1; i < n; i++) if (totals[i] > totals[champion]) champion = i;
-    }
-    wins[champion]++;
-  }
-
-  for (let i = 0; i < n; i++) {
-    results[i].winProbability = Math.round((wins[i] / simulations) * 10000) / 100;
-  }
-
-  return results.sort((a, b) => b.winProbability - a.winProbability || b.currentPoints - a.currentPoints);
 };
 
 // Fisher-Yates shuffle, used to randomize the order advancing teams get carried into the next
