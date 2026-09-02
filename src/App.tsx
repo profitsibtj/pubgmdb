@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import {
-  Activity, Users, ArrowRightLeft, PlusCircle, LogOut, Sun, Moon, Lock, Award, Trophy, MapPin
+  Activity, Users, ArrowRightLeft, PlusCircle, LogOut, Sun, Moon, Lock, Award, Trophy, MapPin, Globe2
 } from "lucide-react";
 import { Match, ScheduleEntry, DailyStatsEntry } from "./types";
 import { AuthScreen } from "./components/AuthScreen";
@@ -11,6 +11,7 @@ import { HeadToHead } from "./components/HeadToHead";
 import { RosterManager, RosterPlayer } from "./components/RosterManager";
 import { PlayerInputPanel } from "./components/PlayerInputPanel";
 import { TournamentStandings } from "./components/TournamentStandings";
+import { PmgcRace } from "./components/PmgcRace";
 import { DropZoneSimulator } from "./components/DropZoneSimulator";
 import { MatchSchedule } from "./components/MatchSchedule";
 import { clientDb } from "./firebaseClient";
@@ -1339,6 +1340,7 @@ export default function App() {
             {[
               { id: "matches", label: "Match Results", icon: Activity },
               { id: "tournamentStandings", label: "Match Standings", icon: Trophy },
+              { id: "pmgcRace", label: "PMGC Race", icon: Globe2 },
               { id: "playerStats", label: "Player Stats", icon: Users },
               { id: "rosterManager", label: "Rosters", icon: Award },
               { id: "headTohead", label: "Comparisons", icon: ArrowRightLeft },
@@ -1433,6 +1435,11 @@ export default function App() {
         {/* Tournament Standings tab */}
         {activeTab === "tournamentStandings" && (
           <TournamentStandings matches={matches} isDarkMode={isDarkMode} tournaments={tournaments} />
+        )}
+
+        {/* PMGC Race tab - cross-tournament points race for a given year */}
+        {activeTab === "pmgcRace" && (
+          <PmgcRace matches={matches} isDarkMode={isDarkMode} tournaments={tournaments} />
         )}
 
         {/* Player Stats Dashboard tab */}

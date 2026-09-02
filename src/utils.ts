@@ -276,6 +276,22 @@ export const canonicalizeTeamName = (
   return trimmed;
 };
 
+// The full cross-tournament team-name pipeline in one call: first reconciles a raw name against
+// THIS tournament's own team list/ABBR (canonicalizeTeamName above), then resolves it through the
+// global alias lookup (resolveTeamAlias) in case that team goes by a different name in another
+// tournament entirely. Used anywhere a raw team name needs resolving across leagues at once -
+// Player Stats, Comparisons, PMGC Race - instead of each repeating both steps separately.
+export const canonicalizeTeamAcrossTournaments = (
+  rawName: string,
+  preset: any,
+  globalAliasMap: Record<string, string>
+): string => {
+  const perTournament = preset
+    ? canonicalizeTeamName(rawName, getTournamentTeamList(preset), preset.teamAbbreviations)
+    : (rawName || "").trim();
+  return resolveTeamAlias(perTournament, globalAliasMap);
+};
+
 // Resolves a raw player-name (plus the team it was actually recorded under) to the specific
 // roster player it belongs to - so two different real people who happen to share a nickname
 // (e.g. two players both going by "Shiro" on different teams) are never merged into one person's
@@ -469,6 +485,100 @@ export const calculateStageStandingsOrder = (
       return a.matchesPlayed - b.matchesPlayed;
     })
     .map(([name]) => name);
+};
+
+export interface TournamentFinalRank {
+  team: string;
+  rank: number;
+  totalPoints: number;
+}
+
+// A tournament's ultimate result: its Grand Final's own final ranking if it has one, otherwise its
+// regular-season Overall ranking - the single number a PMGC Race points table converts from.
+// Deliberately simpler than Tournament Standings' own filterable table (no map/week/day/group
+// filters, no configurable tiebreaker beyond WWCD count) since this only ever wants the whole,
+// unfiltered picture of "how did this tournament end". Includes the one-time Grand Final starting
+// bonus (grandFinalBonusByTeam) when scored off the Grand Final, matching what Standings shows.
+export const calculateTournamentFinalStanding = (
+  matches: Match[],
+  leagueName: string,
+  canonicalizeName: (rawName: string) => string,
+  grandFinalBonusByTeam?: Record<string, number>
+): TournamentFinalRank[] => {
+  const relevant = matches.filter(m => !m.isDailyStats && sameLeague(m.league, leagueName));
+  const hasGrandFinal = relevant.some(m => m.isGrandFinal);
+  const scoped = relevant.filter(m => hasGrandFinal
+    ? !!m.isGrandFinal
+    : (!m.isGrandFinal && !m.isSurvivalStage && !m.isLastChanceQualifier));
+
+  const totals: Record<string, number> = {};
+  const wwcdCounts: Record<string, number> = {};
+  scoped.forEach(m => {
+    m.teams.forEach(t => {
+      const name = canonicalizeName(t.name.trim());
+      if (!name) return;
+      totals[name] = (totals[name] || 0) + (Number(t.totalPoints) || 0);
+      if (t.placement === 1) wwcdCounts[name] = (wwcdCounts[name] || 0) + 1;
+    });
+  });
+
+  if (hasGrandFinal && grandFinalBonusByTeam) {
+    Object.entries(grandFinalBonusByTeam).forEach(([rawName, bonus]) => {
+      const name = canonicalizeName(rawName.trim());
+      if (name in totals) totals[name] += Number(bonus) || 0;
+    });
+  }
+
+  return Object.entries(totals)
+    .sort(([nameA, a], [nameB, b]) => {
+      if (b !== a) return b - a;
+      return (wwcdCounts[nameB] || 0) - (wwcdCounts[nameA] || 0);
+    })
+    .map(([team, totalPoints], idx) => ({ team, rank: idx + 1, totalPoints }));
+};
+
+export interface PmgcRaceContribution {
+  league: string;
+  rank: number;
+  points: number;
+}
+
+export interface PmgcRaceResult {
+  team: string;
+  pmgcPoints: number;
+  contributions: PmgcRaceContribution[];
+}
+
+// A year's PMGC Race standings: every tournament preset admin-tagged pmgcRaceEnabled for that year
+// contributes its own final standing (see calculateTournamentFinalStanding above), converted
+// through THAT tournament's own pmgcRacePointsTable, summed per team across every contributing
+// tournament - reconciling the same team appearing under a different name in each one via the
+// global team-alias lookup (buildGlobalTeamAliasMap), same as Player Stats/Comparisons do.
+export const calculatePmgcRaceStandings = (
+  matches: Match[],
+  tournamentPresets: any[],
+  year: string
+): PmgcRaceResult[] => {
+  const globalAliasMap = buildGlobalTeamAliasMap(tournamentPresets);
+  const contributing = (tournamentPresets || []).filter(t =>
+    t.pmgcRaceEnabled && String(t.pmgcRaceYear || "").trim() === String(year).trim()
+  );
+
+  const teamTotals: Record<string, PmgcRaceResult> = {};
+  contributing.forEach(preset => {
+    const canonicalizeName = (raw: string) => canonicalizeTeamAcrossTournaments(raw, preset, globalAliasMap);
+    const pointsTable: number[] = preset.pmgcRacePointsTable || [];
+    const standing = calculateTournamentFinalStanding(matches, preset.name, canonicalizeName, preset.grandFinalBonusByTeam);
+
+    standing.forEach(({ team, rank }) => {
+      const points = pointsTable[rank - 1] || 0;
+      if (!teamTotals[team]) teamTotals[team] = { team, pmgcPoints: 0, contributions: [] };
+      teamTotals[team].pmgcPoints += points;
+      teamTotals[team].contributions.push({ league: preset.name, rank, points });
+    });
+  });
+
+  return Object.values(teamTotals).sort((a, b) => b.pmgcPoints - a.pmgcPoints);
 };
 
 // Fisher-Yates shuffle, used to randomize the order advancing teams get carried into the next

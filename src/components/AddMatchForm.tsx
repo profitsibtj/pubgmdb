@@ -217,6 +217,15 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
     // accumulated across weeks separately from raw match totals. leagueRankPointsTable[i] = points for rank i+1.
     leagueRankPointsEnabled?: boolean;
     leagueRankPointsTable?: number[];
+    // PMGC Race: whether this tournament's own final result (Grand Final standing if it has one,
+    // else regular-season Overall) contributes points toward a year's PMGC Race - admin-tagged per
+    // tournament (not automatic from match dates), so only events that actually count get included.
+    // pmgcRacePointsTable[i] = PMGC Race points for finishing rank i+1 in THIS tournament - its own
+    // table, independent of League Rank Points/Grand Final Bonus, since different qualifying events
+    // can be weighted differently.
+    pmgcRaceEnabled?: boolean;
+    pmgcRaceYear?: string;
+    pmgcRacePointsTable?: number[];
     // How "Fill Bonus from League Points" derives each team's Grand Final bonus from their overall
     // regular-season standing (index i in that sorted standing = rank i+1). "leaguePoints" (default,
     // matches every preset's behavior before this setting existed) uses the team's accumulated
@@ -1768,6 +1777,18 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
                         </label>
                         <p className="text-[9px] text-slate-500 mt-1.5 leading-relaxed">The leader's total + bonus becomes a "Match Point" target - first eligible team to WWCD wins early.</p>
                       </div>
+                      <div>
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={!!activeTournament?.pmgcRaceEnabled}
+                            onChange={(e) => updateActiveTournament({ pmgcRaceEnabled: e.target.checked })}
+                            className="w-4 h-4 accent-amber-500 cursor-pointer shrink-0"
+                          />
+                          <span className="text-[10px] font-mono font-bold text-amber-500 uppercase tracking-wider">PMGC Race</span>
+                        </label>
+                        <p className="text-[9px] text-slate-500 mt-1.5 leading-relaxed">This tournament's own final result feeds a year's PMGC Race standings (its own points table, set below) - only turn on for events that actually count toward it.</p>
+                      </div>
                     </div>
                   </div>
 
@@ -2018,6 +2039,69 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
                             </div>
                           </div>
                         )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* PMGC Race configuration - the on/off toggle lives in Tournament Options above,
+                      this only renders the extra setup once it's on. Year is free text (e.g.
+                      "2026") so it lines up with however the PMGC Race tab groups tournaments. */}
+                  {activeTournament?.pmgcRaceEnabled && (
+                    <div className="bg-slate-950/20 p-4 rounded-xl border border-slate-850/60 space-y-3">
+                      <label className="text-[10px] font-mono font-bold text-amber-500 uppercase tracking-wider block">PMGC Race: Configuration</label>
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider block">YEAR</label>
+                        <input
+                          type="text"
+                          value={activeTournament.pmgcRaceYear || ""}
+                          onChange={(e) => updateActiveTournament({ pmgcRaceYear: e.target.value })}
+                          placeholder="e.g. 2026"
+                          className={`w-32 p-2 rounded-lg text-xs font-mono border focus:outline-none focus:ring-1 focus:ring-amber-500 ${isDarkMode ? "bg-slate-900 border-slate-800 text-slate-100" : "bg-white border-slate-300 text-slate-900"}`}
+                        />
+                      </div>
+
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider block">POINTS TABLE (THIS TOURNAMENT'S FINAL RANK → PMGC RACE POINTS)</label>
+                        <div className="flex flex-wrap gap-2">
+                          {(activeTournament.pmgcRacePointsTable || []).map((pts, idx) => (
+                            <div key={idx} className={`flex items-center gap-1 rounded-lg px-2 py-1 border ${isDarkMode ? "bg-slate-900/60 border-slate-800" : "bg-white border-slate-300"}`}>
+                              <span className="text-[9px] text-slate-500 font-bold">#{idx + 1}</span>
+                              <input
+                                type="number"
+                                value={pts}
+                                onChange={(e) => {
+                                  const table = [...(activeTournament.pmgcRacePointsTable || [])];
+                                  table[idx] = Number(e.target.value) || 0;
+                                  updateActiveTournament({ pmgcRacePointsTable: table });
+                                }}
+                                className={`w-12 bg-transparent text-center text-xs font-bold focus:outline-none ${isDarkMode ? "text-amber-500" : "text-amber-600"}`}
+                              />
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const table = (activeTournament.pmgcRacePointsTable || []).filter((_, i) => i !== idx);
+                                  updateActiveTournament({ pmgcRacePointsTable: table });
+                                }}
+                                className="text-slate-600 hover:text-red-400 cursor-pointer"
+                                title="Delete this rank"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            </div>
+                          ))}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const table = [...(activeTournament.pmgcRacePointsTable || []), 0];
+                              updateActiveTournament({ pmgcRacePointsTable: table });
+                            }}
+                            className="px-2.5 py-1 bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 rounded-lg text-[10px] font-bold flex items-center gap-1 cursor-pointer border border-amber-500/20"
+                          >
+                            <Plus className="w-3 h-3" />
+                            Add Rank
+                          </button>
+                        </div>
+                        <p className="text-[9px] text-slate-500">This tournament's own final standing (Grand Final if it has one, else Overall) at rank N earns #N's value here toward the {activeTournament.pmgcRaceYear || "(year not set)"} PMGC Race.</p>
                       </div>
                     </div>
                   )}

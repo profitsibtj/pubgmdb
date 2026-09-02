@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from "react";
 import { Match } from "../types";
-import { getTournamentTeamList, canonicalizeTeamName, matchRosterPlayer, remapPlayerCustomKeys, buildGlobalTeamAliasMap, resolveTeamAlias } from "../utils";
+import { matchRosterPlayer, remapPlayerCustomKeys, buildGlobalTeamAliasMap, canonicalizeTeamAcrossTournaments } from "../utils";
 import { RosterPlayer } from "./RosterManager";
 import { Crown, Swords } from "lucide-react";
 
@@ -168,10 +168,8 @@ export const HeadToHead: React.FC<HeadToHeadProps> = ({ matches, isDarkMode, tou
   const globalTeamAliasMap = useMemo(() => buildGlobalTeamAliasMap(tournaments || []), [tournaments]);
 
   const canonicalizeTeamForMatch = React.useCallback((rawName: string, leagueName: string) => {
-    const trimmed = (rawName || "").trim();
     const preset = presetsByLeague[(leagueName || "").trim().toLowerCase()];
-    const perTournament = preset ? canonicalizeTeamName(trimmed, getTournamentTeamList(preset), preset.teamAbbreviations) : trimmed;
-    return resolveTeamAlias(perTournament, globalTeamAliasMap);
+    return canonicalizeTeamAcrossTournaments(rawName, preset, globalTeamAliasMap);
   }, [presetsByLeague, globalTeamAliasMap]);
 
   // Process overall stats of teams (aggregated across every match they've played)

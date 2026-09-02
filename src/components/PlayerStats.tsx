@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from "react";
 import { Match } from "../types";
-import { calculatePlacementPoints, getTournamentTeamList, canonicalizeTeamName, matchRosterPlayer, canonicalCustomKey, looksLikeTimeValue, remapPlayerCustomKeys, getTeamGroupMap, buildGlobalTeamAliasMap, resolveTeamAlias, getDayLabelForDate } from "../utils";
+import { calculatePlacementPoints, matchRosterPlayer, canonicalCustomKey, looksLikeTimeValue, remapPlayerCustomKeys, getTeamGroupMap, buildGlobalTeamAliasMap, canonicalizeTeamAcrossTournaments, getDayLabelForDate } from "../utils";
 import { RosterPlayer } from "./RosterManager";
 import {
   Search, User, Award, Grid, List, Trash2, Lock, ShieldAlert, Pencil, Crown
@@ -198,10 +198,8 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({
   const globalTeamAliasMap = useMemo(() => buildGlobalTeamAliasMap(tournaments || []), [tournaments]);
 
   const canonicalizeTeamForMatch = React.useCallback((rawName: string, leagueName: string) => {
-    const trimmed = (rawName || "").trim();
     const preset = presetsByLeague[(leagueName || "").trim().toLowerCase()];
-    const perTournament = preset ? canonicalizeTeamName(trimmed, getTournamentTeamList(preset), preset.teamAbbreviations) : trimmed;
-    return resolveTeamAlias(perTournament, globalTeamAliasMap);
+    return canonicalizeTeamAcrossTournaments(rawName, preset, globalTeamAliasMap);
   }, [presetsByLeague, globalTeamAliasMap]);
 
   // Resolves a player name (+ the team it was recorded under) back to the specific roster player
