@@ -210,10 +210,41 @@ export const RosterManager: React.FC<RosterManagerProps> = ({
     onUpdateTournaments(updated);
   };
 
+  // Which region this team represents (e.g. "Indonesia") - kept per-league same as ABBR/Alias
+  // above, purely so PMGC Race standings can be grouped/filtered by region. See
+  // buildGlobalTeamRegionMap in utils.ts.
+  const getTeamRegionMap = React.useCallback((leagueName: string): Record<string, string> => {
+    const preset = tournamentsList.find((t: any) => t.name === leagueName);
+    return (preset && preset.teamRegions) || {};
+  }, [tournamentsList]);
+
+  const handleTeamRegionChange = (leagueName: string, teamName: string, region: string) => {
+    if (!onUpdateTournaments || !teamName.trim()) return;
+    const trimmed = region.trim();
+    const updated = tournamentsList.map((t: any) => {
+      if (t.name !== leagueName) return t;
+      const nextRegions = { ...(t.teamRegions || {}) };
+      if (trimmed) {
+        nextRegions[teamName] = trimmed;
+      } else {
+        delete nextRegions[teamName];
+      }
+      return { ...t, teamRegions: nextRegions };
+    });
+    onUpdateTournaments(updated);
+  };
+
+  const teamRegionMap: Record<string, string> = React.useMemo(
+    () => getTeamRegionMap(selectedLeague),
+    [getTeamRegionMap, selectedLeague]
+  );
+
   // Team ABBR input, live in the Add/Edit Player form
   const [abbrInput, setAbbrInput] = useState("");
   // Comma-separated "also known as" names, live in the Add/Edit Player form
   const [aliasInput, setAliasInput] = useState("");
+  // Region label (e.g. "Indonesia"), live in the Add/Edit Player form
+  const [regionInput, setRegionInput] = useState("");
 
   // Comma-separated old nicknames, edited as free text and parsed into an array on submit
   const [previousNamesInput, setPreviousNamesInput] = useState("");
@@ -245,6 +276,7 @@ export const RosterManager: React.FC<RosterManagerProps> = ({
     setForm({ ...player });
     setAbbrInput(getTeamAbbrMap(player.league)[(player.team || "").toUpperCase().trim()] || "");
     setAliasInput(getTeamAliasMap(player.league)[(player.team || "").trim()] || "");
+    setRegionInput(getTeamRegionMap(player.league)[(player.team || "").trim()] || "");
     setPreviousNamesInput((player.previousNames || []).join(", "));
     setIsFormOpen(true);
   };
@@ -284,6 +316,7 @@ export const RosterManager: React.FC<RosterManagerProps> = ({
       if (form.team.trim()) {
         handleTeamAbbrChange(form.league, form.team.toUpperCase().trim(), abbrInput);
         handleTeamAliasChange(form.league, form.team.trim(), aliasInput);
+        handleTeamRegionChange(form.league, form.team.trim(), regionInput);
       }
       setIsFormOpen(false);
       setEditingPlayer(null);
@@ -531,6 +564,7 @@ export const RosterManager: React.FC<RosterManagerProps> = ({
                           setForm(prev => ({ ...prev, team: e.target.value }));
                           setAbbrInput(getTeamAbbrMap(form.league)[e.target.value.toUpperCase().trim()] || "");
                           setAliasInput(getTeamAliasMap(form.league)[e.target.value.trim()] || "");
+                          setRegionInput(getTeamRegionMap(form.league)[e.target.value.trim()] || "");
                         }
                       }}
                       className={`flex-1 rounded-lg p-2.5 text-sm focus:outline-none border focus:ring-1 focus:ring-amber-500 cursor-pointer ${isDarkMode ? "bg-slate-900 border-slate-800 text-slate-100" : "bg-slate-50 border-slate-200 text-slate-900"}`}
@@ -568,6 +602,18 @@ export const RosterManager: React.FC<RosterManagerProps> = ({
                     />
                   </div>
                 )}
+                {form.team.trim() && (
+                  <div className="flex items-center gap-2 pt-1">
+                    <span className="text-[9px] text-slate-500 uppercase font-bold shrink-0" title="This team's region, used only to group/filter PMGC Race standings (e.g. Indonesia).">Region:</span>
+                    <input
+                      type="text"
+                      value={regionInput}
+                      onChange={(e) => setRegionInput(e.target.value)}
+                      placeholder="e.g. Indonesia"
+                      className={`flex-1 rounded-lg p-1.5 text-xs font-semibold focus:outline-none border focus:ring-1 focus:ring-amber-500 ${isDarkMode ? "bg-slate-900 border-slate-800 text-slate-100" : "bg-slate-50 border-slate-200 text-slate-900"}`}
+                    />
+                  </div>
+                )}
               </div>
             </div>
 
@@ -595,6 +641,7 @@ export const RosterManager: React.FC<RosterManagerProps> = ({
                     setUseCustomTeam(false);
                     setAbbrInput("");
                     setAliasInput("");
+                    setRegionInput("");
                   }}
                   className={`w-full rounded-lg p-2.5 text-sm focus:outline-none border focus:ring-1 focus:ring-amber-500 cursor-pointer ${isDarkMode ? "bg-slate-900 border-slate-800 text-slate-100" : "bg-slate-50 border-slate-200 text-slate-900"}`}
                   required
@@ -856,6 +903,16 @@ export const RosterManager: React.FC<RosterManagerProps> = ({
                         {teamAbbrMap[teamName]}
                       </span>
                     )}
+                    {(() => {
+                      // teamRegionMap is keyed by properly-cased team name (like teamAliases), while
+                      // `teamName` here is the uppercased grouping key - match case-insensitively.
+                      const region = Object.entries(teamRegionMap).find(([k]) => k.toUpperCase().trim() === teamName)?.[1];
+                      return region ? (
+                        <span className="text-[9px] px-2 py-0.5 rounded-full bg-sky-500/10 text-sky-500 border border-sky-500/20 font-bold">
+                          {region}
+                        </span>
+                      ) : null;
+                    })()}
                     <span className="text-[9px] px-2 py-0.5 rounded-full bg-slate-950/40 text-slate-500 border border-slate-900/40 font-bold">
                       {teamPlayers.length} Members
                     </span>

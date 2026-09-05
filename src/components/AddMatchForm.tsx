@@ -264,6 +264,10 @@ export const AddMatchForm: React.FC<AddMatchFormProps> = ({
     // merge that team's stats across leagues in Player Stats/Comparisons - see
     // buildGlobalTeamAliasMap in utils.ts.
     teamAliases?: Record<string, string>;
+    // Canonical team name (as used in THIS tournament) -> region label (e.g. "Indonesia") set in
+    // Squad Roster. Used purely to group/filter PMGC Race standings by region - see
+    // buildGlobalTeamRegionMap in utils.ts.
+    teamRegions?: Record<string, string>;
     // Not every tournament tracks player stats at both granularities - each is independently opt-in.
     // Missing/undefined defaults to day-only (matches pre-existing behavior for older presets).
     playerStatsDayEnabled?: boolean;

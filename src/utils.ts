@@ -537,6 +537,28 @@ export const calculateTournamentFinalStanding = (
     .map(([team, totalPoints], idx) => ({ team, rank: idx + 1, totalPoints }));
 };
 
+// Which region a team represents (e.g. "Indonesia"), set per-team in Squad Roster same as
+// teamAliases - purely so PMGC Race standings can be grouped/filtered by region. A team's region
+// may be typed against whichever tournament's own name it was entered under (canonical or an
+// alias), so each entry is run through the same canonicalize+alias pipeline as everything else
+// before being unioned, keeping it keyed by the one true global canonical name. First region found
+// for a team wins if it was somehow tagged differently in two presets.
+export const buildGlobalTeamRegionMap = (presets: any[]): Record<string, string> => {
+  const aliasMap = buildGlobalTeamAliasMap(presets);
+  const map: Record<string, string> = {};
+  (presets || []).forEach(preset => {
+    const regions: Record<string, string> | undefined = preset?.teamRegions;
+    if (!regions) return;
+    Object.entries(regions).forEach(([teamName, region]) => {
+      const trimmedRegion = (region || "").trim();
+      if (!trimmedRegion) return;
+      const canonical = canonicalizeTeamAcrossTournaments(teamName, preset, aliasMap);
+      if (!map[canonical]) map[canonical] = trimmedRegion;
+    });
+  });
+  return map;
+};
+
 export interface PmgcRaceContribution {
   league: string;
   rank: number;
@@ -545,6 +567,7 @@ export interface PmgcRaceContribution {
 
 export interface PmgcRaceResult {
   team: string;
+  region?: string;
   pmgcPoints: number;
   contributions: PmgcRaceContribution[];
 }
@@ -560,6 +583,7 @@ export const calculatePmgcRaceStandings = (
   year: string
 ): PmgcRaceResult[] => {
   const globalAliasMap = buildGlobalTeamAliasMap(tournamentPresets);
+  const globalRegionMap = buildGlobalTeamRegionMap(tournamentPresets);
   const contributing = (tournamentPresets || []).filter(t =>
     t.pmgcRaceEnabled && String(t.pmgcRaceYear || "").trim() === String(year).trim()
   );
@@ -572,7 +596,7 @@ export const calculatePmgcRaceStandings = (
 
     standing.forEach(({ team, rank }) => {
       const points = pointsTable[rank - 1] || 0;
-      if (!teamTotals[team]) teamTotals[team] = { team, pmgcPoints: 0, contributions: [] };
+      if (!teamTotals[team]) teamTotals[team] = { team, region: globalRegionMap[team], pmgcPoints: 0, contributions: [] };
       teamTotals[team].pmgcPoints += points;
       teamTotals[team].contributions.push({ league: preset.name, rank, points });
     });
